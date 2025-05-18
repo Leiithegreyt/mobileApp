@@ -48,10 +48,13 @@ data class DriverProfile(
 
 data class Trip(
     val id: Int,
-    val pickup_location: String,
-    val dropoff_location: String,
-    val scheduled_time: String,
-    val status: String
+    val destination: String?,
+    val purpose: String?,
+    val travel_date: String?,
+    val travel_time: String?,
+    val status: String?,
+    val pickup_location: String?,
+    val requested_by: String?
 )
 
 data class TripDetails(

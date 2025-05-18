@@ -9,9 +9,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -19,6 +22,8 @@ import com.example.drivebroom.network.NetworkClient
 import com.example.drivebroom.repository.DriverRepository
 import com.example.drivebroom.ui.screens.DriverHomeScreen
 import com.example.drivebroom.ui.screens.LoginScreen
+import com.example.drivebroom.ui.screens.TripDetailsScreen
+import com.example.drivebroom.network.TripDetails
 import com.example.drivebroom.ui.theme.DriveBroomTheme
 import com.example.drivebroom.utils.TokenManager
 import com.example.drivebroom.viewmodel.DriverHomeUiState
@@ -27,6 +32,8 @@ import com.example.drivebroom.viewmodel.LoginState
 import com.example.drivebroom.viewmodel.LoginViewModel
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import kotlinx.coroutines.launch
+import com.example.drivebroom.viewmodel.NavigationViewModel
 
 class MainActivity : ComponentActivity() {
     private lateinit var tokenManager: TokenManager
@@ -34,7 +41,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tokenManager = TokenManager(this)
-        
+        val tripIdFromIntent = intent.getStringExtra("trip_id")?.toIntOrNull()
         enableEdgeToEdge()
         setContent {
             DriveBroomTheme {
@@ -42,7 +49,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainScreen(tokenManager)
+                    MainScreen(tokenManager, tripIdFromIntent)
                 }
             }
         }
@@ -50,7 +57,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen(tokenManager: TokenManager) {
+fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
+    val navigationViewModel: NavigationViewModel = viewModel()
+    // Set pendingTripId if tripIdFromIntent is not null
+    LaunchedEffect(tripIdFromIntent) {
+        if (tripIdFromIntent != null) {
+            navigationViewModel.pendingTripId.value = tripIdFromIntent
+        }
+    }
     val loginViewModel: LoginViewModel = viewModel(
         factory = LoginViewModelFactory(DriverRepository(NetworkClient(tokenManager).apiService), tokenManager)
     )
@@ -62,6 +76,21 @@ fun MainScreen(tokenManager: TokenManager) {
         object : ViewModelStoreOwner {
             override val viewModelStore: ViewModelStore
                 get() = sessionStore
+        }
+    }
+
+    // Trip details navigation state
+    val selectedTripId = remember { mutableStateOf<Int?>(null) }
+    val tripDetailsState = remember { mutableStateOf<TripDetails?>(null) }
+    val tripDetailsLoading = remember { mutableStateOf(false) }
+    val tripDetailsError = remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // After login, if pendingTripId is set, navigate to trip details
+    LaunchedEffect(loginState) {
+        if (loginState is LoginState.Success && navigationViewModel.pendingTripId.value != null) {
+            selectedTripId.value = navigationViewModel.pendingTripId.value
+            navigationViewModel.pendingTripId.value = null
         }
     }
 
@@ -78,41 +107,105 @@ fun MainScreen(tokenManager: TokenManager) {
             }
             val driverHomeState by driverHomeViewModel.uiState.collectAsState()
 
-            when (driverHomeState) {
-                is DriverHomeUiState.Loading -> {
-                    DriverHomeScreen(
-                        onLogout = { 
-                            driverHomeViewModel.logout()
-                            loginViewModel.logout()
-                        },
-                        driverProfile = null,
-                        trips = emptyList(),
-                        onTripClick = { /* TODO: Handle trip click */ },
-                        isLoading = true
-                    )
+            if (selectedTripId.value == null) {
+                when (driverHomeState) {
+                    is DriverHomeUiState.Loading -> {
+                        DriverHomeScreen(
+                            onLogout = { 
+                                driverHomeViewModel.logout()
+                                loginViewModel.logout()
+                            },
+                            driverProfile = null,
+                            trips = emptyList(),
+                            onTripClick = { tripId ->
+                                selectedTripId.value = tripId
+                                tripDetailsLoading.value = true
+                                tripDetailsError.value = null
+                                coroutineScope.launch {
+                                    try {
+                                        val details = repository.apiService.getTripDetails(tripId)
+                                        tripDetailsState.value = details
+                                        tripDetailsLoading.value = false
+                                    } catch (e: Exception) {
+                                        tripDetailsError.value = e.message ?: "Failed to load trip details"
+                                        tripDetailsLoading.value = false
+                                    }
+                                }
+                            },
+                            isLoading = true,
+                            onRefresh = { driverHomeViewModel.loadData() }
+                        )
+                    }
+                    is DriverHomeUiState.Success -> {
+                        val state = driverHomeState as DriverHomeUiState.Success
+                        DriverHomeScreen(
+                            onLogout = { 
+                                driverHomeViewModel.logout()
+                                loginViewModel.logout()
+                            },
+                            driverProfile = state.profile,
+                            trips = state.trips,
+                            onTripClick = { tripId ->
+                                selectedTripId.value = tripId
+                                tripDetailsLoading.value = true
+                                tripDetailsError.value = null
+                                coroutineScope.launch {
+                                    try {
+                                        val details = repository.apiService.getTripDetails(tripId)
+                                        tripDetailsState.value = details
+                                        tripDetailsLoading.value = false
+                                    } catch (e: Exception) {
+                                        tripDetailsError.value = e.message ?: "Failed to load trip details"
+                                        tripDetailsLoading.value = false
+                                    }
+                                }
+                            },
+                            isLoading = false,
+                            onRefresh = { driverHomeViewModel.loadData() }
+                        )
+                    }
+                    is DriverHomeUiState.Error -> {
+                        val errorState = driverHomeState as DriverHomeUiState.Error
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = "Error: ${errorState.message}",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
-                is DriverHomeUiState.Success -> {
-                    val state = driverHomeState as DriverHomeUiState.Success
-                    DriverHomeScreen(
-                        onLogout = { 
-                            driverHomeViewModel.logout()
-                            loginViewModel.logout()
-                        },
-                        driverProfile = state.profile,
-                        trips = state.trips,
-                        onTripClick = { /* TODO: Handle trip click */ },
-                        isLoading = false
-                    )
-                }
-                is DriverHomeUiState.Error -> {
-                    val errorState = driverHomeState as DriverHomeUiState.Error
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        androidx.compose.material3.Text(
-                            text = "Error: ${errorState.message}",
-                            color = MaterialTheme.colorScheme.error
+            } else {
+                when {
+                    tripDetailsLoading.value -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator()
+                        }
+                    }
+                    tripDetailsError.value != null -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = "Error: ${tripDetailsError.value}",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                    tripDetailsState.value != null -> {
+                        TripDetailsScreen(
+                            tripDetails = tripDetailsState.value!!,
+                            onBack = {
+                                selectedTripId.value = null
+                                tripDetailsState.value = null
+                                tripDetailsError.value = null
+                            }
                         )
                     }
                 }

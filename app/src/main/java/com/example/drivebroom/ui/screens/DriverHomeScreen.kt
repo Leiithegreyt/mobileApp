@@ -24,7 +24,8 @@ fun DriverHomeScreen(
     driverProfile: DriverProfile?,
     trips: List<Trip>,
     onTripClick: (Int) -> Unit,
-    isLoading: Boolean
+    isLoading: Boolean,
+    onRefresh: () -> Unit
 ) {
     var showProfile by remember { mutableStateOf(false) }
 
@@ -64,7 +65,14 @@ fun DriverHomeScreen(
                         modifier = Modifier.padding(bottom = 32.dp)
                     )
                 }
-
+                item {
+                    Button(
+                        onClick = onRefresh,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Text("Refresh")
+                    }
+                }
                 item {
                     Text(
                         text = "Today's Schedule",
@@ -115,41 +123,53 @@ fun TripCard(
             .fillMaxWidth()
             .padding(bottom = 16.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Top row: Status and Trip ID
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                StatusChip(status = trip.status ?: "Unknown")
                 Text(
-                    text = "Trip #${trip.id}",
-                    style = MaterialTheme.typography.titleMedium
+                    text = "Trip ID: #${trip.id}",
+                    style = MaterialTheme.typography.labelLarge
                 )
-                StatusChip(status = trip.status)
             }
+            Spacer(modifier = Modifier.height(12.dp))
 
+            // Requested By (if available)
+            Text(
+                text = "Requested By",
+                style = MaterialTheme.typography.labelMedium
+            )
+            Text(
+                text = trip.requested_by ?: "-",
+                style = MaterialTheme.typography.bodyMedium
+            )
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                text = "From: ${trip.pickup_location}",
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "To: ${trip.dropoff_location}",
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
+            // Two columns for details
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Travel Date", style = MaterialTheme.typography.labelMedium)
+                    Text(trip.travel_date ?: "-", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Destination", style = MaterialTheme.typography.labelMedium)
+                    Text(trip.destination ?: "-", style = MaterialTheme.typography.bodyMedium)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Travel Time", style = MaterialTheme.typography.labelMedium)
+                    Text(trip.travel_time ?: "-", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Purpose", style = MaterialTheme.typography.labelMedium)
+                    Text(trip.purpose ?: "-", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Scheduled: ${formatDateTime(trip.scheduled_time)}",
-                style = MaterialTheme.typography.bodySmall
-            )
+            // Pickup Location
+            Text("Pickup Location", style = MaterialTheme.typography.labelMedium)
+            Text(trip.pickup_location ?: "-", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
