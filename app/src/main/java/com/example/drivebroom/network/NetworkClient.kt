@@ -7,6 +7,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import android.util.Log
 
 class NetworkClient(private val tokenManager: TokenManager) {
     private val okHttpClient = OkHttpClient.Builder()
@@ -14,12 +15,13 @@ class NetworkClient(private val tokenManager: TokenManager) {
             level = HttpLoggingInterceptor.Level.BODY
         })
         .addInterceptor { chain ->
+            val token = tokenManager.getToken()
+            Log.d("NetworkClient", "Using token: $token")
             val request = chain.request().newBuilder()
                 .addHeader("Accept", "application/json")
                 .apply {
-                    // Add Bearer token if available
-                    tokenManager.getToken()?.let { token ->
-                        addHeader("Authorization", "Bearer $token")
+                    token?.let {
+                        addHeader("Authorization", "Bearer $it")
                     }
                 }
                 .build()

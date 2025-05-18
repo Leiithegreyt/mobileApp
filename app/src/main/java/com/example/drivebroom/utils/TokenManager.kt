@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import android.util.Log
 
 class TokenManager(context: Context) {
     private val masterKey = MasterKey.Builder(context)
@@ -19,14 +20,18 @@ class TokenManager(context: Context) {
     )
 
     fun saveToken(token: String) {
+        Log.d("TokenManager", "Saving token: $token")
         sharedPreferences.edit().putString(KEY_TOKEN, token).apply()
     }
 
     fun getToken(): String? {
-        return sharedPreferences.getString(KEY_TOKEN, null)
+        val token = sharedPreferences.getString(KEY_TOKEN, null)
+        Log.d("TokenManager", "Getting token: $token")
+        return token
     }
 
     fun clearToken() {
+        Log.d("TokenManager", "Clearing token")
         sharedPreferences.edit().remove(KEY_TOKEN).apply()
     }
 

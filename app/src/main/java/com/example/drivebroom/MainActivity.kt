@@ -11,6 +11,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -24,6 +25,8 @@ import com.example.drivebroom.viewmodel.DriverHomeUiState
 import com.example.drivebroom.viewmodel.DriverHomeViewModel
 import com.example.drivebroom.viewmodel.LoginState
 import com.example.drivebroom.viewmodel.LoginViewModel
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 
 class MainActivity : ComponentActivity() {
     private lateinit var tokenManager: TokenManager
@@ -48,17 +51,31 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainScreen(tokenManager: TokenManager) {
-    val repository = DriverRepository(NetworkClient(tokenManager).apiService)
     val loginViewModel: LoginViewModel = viewModel(
-        factory = LoginViewModelFactory(repository, tokenManager)
+        factory = LoginViewModelFactory(DriverRepository(NetworkClient(tokenManager).apiService), tokenManager)
     )
     val loginState by loginViewModel.loginState.collectAsState()
 
+    // Use a unique ViewModelStore for each login session
+    val sessionStore = remember(loginState) { ViewModelStore() }
+    val sessionOwner = remember(sessionStore) {
+        object : ViewModelStoreOwner {
+            override val viewModelStore: ViewModelStore
+                get() = sessionStore
+        }
+    }
+
     when (loginState) {
         is LoginState.Success -> {
-            val driverHomeViewModel: DriverHomeViewModel = viewModel(
-                factory = DriverHomeViewModelFactory(NetworkClient(tokenManager).apiService)
-            )
+            val token = (loginState as LoginState.Success).token
+            val networkClient = remember(token) { NetworkClient(tokenManager) }
+            val repository = remember(token) { DriverRepository(networkClient.apiService) }
+            val driverHomeViewModel = remember(sessionOwner) {
+                androidx.lifecycle.ViewModelProvider(
+                    sessionOwner,
+                    DriverHomeViewModelFactory(repository.apiService)
+                ).get(DriverHomeViewModel::class.java)
+            }
             val driverHomeState by driverHomeViewModel.uiState.collectAsState()
 
             when (driverHomeState) {

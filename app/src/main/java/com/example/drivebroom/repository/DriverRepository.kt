@@ -6,7 +6,7 @@ import com.example.drivebroom.network.LoginResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class DriverRepository(private val apiService: ApiService) {
+class DriverRepository(val apiService: ApiService) {
     suspend fun loginDriver(email: String, password: String): Result<LoginResponse> {
         return withContext(Dispatchers.IO) {
             try {
