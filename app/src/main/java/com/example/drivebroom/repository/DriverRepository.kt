@@ -3,6 +3,7 @@ package com.example.drivebroom.repository
 import com.example.drivebroom.network.ApiService
 import com.example.drivebroom.network.LoginRequest
 import com.example.drivebroom.network.LoginResponse
+import com.example.drivebroom.network.FcmTokenRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -19,6 +20,16 @@ class DriverRepository(val apiService: ApiService) {
             } catch (e: Exception) {
                 Result.failure(e)
             }
+        }
+    }
+
+    suspend fun updateFcmToken(token: String): Result<Unit> {
+        return try {
+            val response = apiService.updateFcmToken(FcmTokenRequest(token))
+            if (response.isSuccessful) Result.success(Unit)
+            else Result.failure(Exception("Failed to update FCM token"))
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 } 

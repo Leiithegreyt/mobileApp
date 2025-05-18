@@ -17,6 +17,9 @@ interface ApiService {
 
     @POST("logout")
     suspend fun logout(): LogoutResponse
+
+    @POST("driver/fcm-token")
+    suspend fun updateFcmToken(@Body request: FcmTokenRequest): retrofit2.Response<Unit>
 }
 
 data class LoginRequest(
@@ -64,4 +67,6 @@ data class TripDetails(
 data class LogoutResponse(
     val success: Boolean,
     val message: String
-) 
+)
+
+data class FcmTokenRequest(val fcm_token: String) 

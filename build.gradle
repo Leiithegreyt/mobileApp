@@ -3,6 +3,9 @@ buildscript {
     ext {
         compose_compiler_version = '1.5.1'
     }
+    dependencies {
+        classpath 'com.google.gms:google-services:4.4.1'
+    }
 }
 
 plugins {

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 
 class LoginViewModel(
     private val repository: DriverRepository,
@@ -47,6 +48,16 @@ class LoginViewModel(
                     response.access_token?.let { token ->
                         tokenManager.saveToken(token)
                         _loginState.value = LoginState.Success(token)
+
+                        // Get and send FCM token
+                        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val fcmToken = task.result
+                                viewModelScope.launch {
+                                    repository.updateFcmToken(fcmToken)
+                                }
+                            }
+                        }
                     } ?: run {
                         Log.d("LoginViewModel", "No access_token in response")
                         _loginState.value = LoginState.Error("Invalid response from server")

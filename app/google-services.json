@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "94389461502",
+    "project_id": "drivebroom-8a519",
+    "storage_bucket": "drivebroom-8a519.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:94389461502:android:b78665bb0d3f39e1b3e0af",
+        "android_client_info": {
+          "package_name": "com.company.drivebroom"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUwNywwDOA9uYFSISG5mxt1GTCyfikJH8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:94389461502:android:0b625209aab76bf5b3e0af",
+        "android_client_info": {
+          "package_name": "com.example.drivebroom"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUwNywwDOA9uYFSISG5mxt1GTCyfikJH8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
