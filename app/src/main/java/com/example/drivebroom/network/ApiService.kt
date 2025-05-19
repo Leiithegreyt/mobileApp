@@ -59,12 +59,26 @@ data class Trip(
 
 data class TripDetails(
     val id: Int,
-    val pickup_location: String,
-    val dropoff_location: String,
-    val scheduled_time: String,
     val status: String,
-    val passenger_name: String,
-    val passenger_phone: String
+    val travel_date: String,
+    val passenger_email: String,
+    val date_of_request: String,
+    val travel_time: String,
+    val destination: String,
+    val purpose: String,
+    val passengers: String,
+    val vehicle: Vehicle?
+)
+
+data class Vehicle(
+    val id: Int,
+    val plate_number: String,
+    val model: String,
+    val type: String,
+    val capacity: Int,
+    val status: String,
+    val last_maintenance_date: String,
+    val next_maintenance_date: String
 )
 
 data class LogoutResponse(

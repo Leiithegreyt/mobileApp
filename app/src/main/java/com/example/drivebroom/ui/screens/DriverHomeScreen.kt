@@ -16,6 +16,8 @@ import com.example.drivebroom.network.DriverProfile
 import com.example.drivebroom.network.Trip
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,6 +30,48 @@ fun DriverHomeScreen(
     onRefresh: () -> Unit
 ) {
     var showProfile by remember { mutableStateOf(false) }
+    var showNextSchedule by remember { mutableStateOf(false) }
+
+    // Date logic for filtering
+    val today = remember {
+        val cal = Calendar.getInstance()
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        cal.time
+    }
+    val millisInDay = 24 * 60 * 60 * 1000
+    val todaysTrips = trips.filter { trip ->
+        trip.travel_date?.let {
+            try {
+                val tripDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).parse(it)
+                tripDate != null && !tripDate.before(today) && tripDate.before(Date(today.time + millisInDay))
+            } catch (e: Exception) {
+                false
+            }
+        } ?: false
+    }
+    val nextTrips = trips.filter { trip ->
+        trip.travel_date?.let {
+            try {
+                val tripDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).parse(it)
+                tripDate != null && tripDate.after(Date(today.time + millisInDay - 1))
+            } catch (e: Exception) {
+                false
+            }
+        } ?: false
+    }
+
+    if (showNextSchedule) {
+        NextScheduleScreen(
+            driverProfile = driverProfile,
+            nextTrips = nextTrips,
+            onTripClick = onTripClick,
+            onBack = { showNextSchedule = false }
+        )
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -74,18 +118,34 @@ fun DriverHomeScreen(
                     }
                 }
                 item {
-                    Text(
-                        text = "Today's Schedule",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Today's Schedule",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                        Button(
+                            onClick = { showNextSchedule = true },
+                            modifier = Modifier.padding(start = 8.dp)
+                        ) {
+                            Text("Next Schedule")
+                        }
+                    }
                 }
-
-                items(trips) { trip ->
-                    TripCard(
-                        trip = trip,
-                        onClick = { onTripClick(trip.id) }
-                    )
+                if (todaysTrips.isEmpty()) {
+                    item {
+                        Text("No trips scheduled for today.", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else {
+                    items(todaysTrips) { trip ->
+                        TripCard(
+                            trip = trip,
+                            onClick = { onTripClick(trip.id) }
+                        )
+                    }
                 }
             }
         }
@@ -113,63 +173,105 @@ fun DriverHomeScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun NextScheduleScreen(
+    driverProfile: DriverProfile?,
+    nextTrips: List<Trip>,
+    onTripClick: (Int) -> Unit,
+    onBack: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Next Schedule") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ExitToApp, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+        ) {
+            item {
+                Text(
+                    text = "Upcoming Trips",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
+            if (nextTrips.isEmpty()) {
+                item {
+                    Text("No upcoming trips.", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                items(nextTrips) { trip ->
+                    TripCard(
+                        trip = trip,
+                        onClick = { onTripClick(trip.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun TripCard(
     trip: Trip,
     onClick: () -> Unit
 ) {
+    // Format travel_date and travel_time
+    val formattedTravelDate = trip.travel_date?.let { formatDateOnly(it) } ?: "-"
+    val formattedTravelTime = trip.travel_time?.let { formatTimeOnly(it) } ?: "-"
+
     Card(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 16.dp)
+            .padding(bottom = 16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        elevation = CardDefaults.cardElevation(8.dp),
+        shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Top row: Status and Trip ID
+            // Status bar
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 StatusChip(status = trip.status ?: "Unknown")
                 Text(
-                    text = "Trip ID: #${trip.id}",
-                    style = MaterialTheme.typography.labelLarge
+                    text = "Trip #${trip.id}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
 
-            // Requested By (if available)
-            Text(
-                text = "Requested By",
-                style = MaterialTheme.typography.labelMedium
-            )
-            Text(
-                text = trip.requested_by ?: "-",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Two columns for details
+            // Main details
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Travel Date", style = MaterialTheme.typography.labelMedium)
-                    Text(trip.travel_date ?: "-", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Destination", style = MaterialTheme.typography.labelMedium)
-                    Text(trip.destination ?: "-", style = MaterialTheme.typography.bodyMedium)
+                    LabelValue(label = "Date", value = formattedTravelDate)
+                    LabelValue(label = "Time", value = formattedTravelTime)
+                    LabelValue(label = "Destination", value = trip.destination ?: "-")
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Travel Time", style = MaterialTheme.typography.labelMedium)
-                    Text(trip.travel_time ?: "-", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Purpose", style = MaterialTheme.typography.labelMedium)
-                    Text(trip.purpose ?: "-", style = MaterialTheme.typography.bodyMedium)
+                    LabelValue(label = "Purpose", value = trip.purpose ?: "-")
+                    LabelValue(label = "Requested By", value = trip.requested_by ?: "-")
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            // Pickup Location
-            Text("Pickup Location", style = MaterialTheme.typography.labelMedium)
-            Text(trip.pickup_location ?: "-", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -177,6 +279,7 @@ fun TripCard(
 @Composable
 fun StatusChip(status: String) {
     val (color, text) = when (status.lowercase()) {
+        "approved" -> Color(0xFF4CAF50) to "Approved" // Green
         "pending" -> MaterialTheme.colorScheme.tertiary to "Pending"
         "in_progress" -> MaterialTheme.colorScheme.primary to "In Progress"
         "completed" -> MaterialTheme.colorScheme.secondary to "Completed"
@@ -197,10 +300,32 @@ fun StatusChip(status: String) {
     }
 }
 
-private fun formatDateTime(dateTimeStr: String): String {
+@Composable
+fun LabelValue(label: String, value: String) {
+    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+    Text(
+        value,
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+}
+
+private fun formatDateOnly(dateTimeStr: String): String {
     return try {
         val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
-        val outputFormat = SimpleDateFormat("MMM dd, yyyy hh:mm a", Locale.getDefault())
+        val outputFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+        val date = inputFormat.parse(dateTimeStr)
+        date?.let { outputFormat.format(it) } ?: dateTimeStr
+    } catch (e: Exception) {
+        dateTimeStr
+    }
+}
+
+private fun formatTimeOnly(dateTimeStr: String): String {
+    return try {
+        val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault())
+        val outputFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
         val date = inputFormat.parse(dateTimeStr)
         date?.let { outputFormat.format(it) } ?: dateTimeStr
     } catch (e: Exception) {
