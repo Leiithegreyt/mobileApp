@@ -18,6 +18,9 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
+import com.example.drivebroom.viewmodel.TripDetailsViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +34,20 @@ fun DriverHomeScreen(
 ) {
     var showProfile by remember { mutableStateOf(false) }
     var showNextSchedule by remember { mutableStateOf(false) }
+    var showCompletedTrips by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val viewModel: TripDetailsViewModel = viewModel(
+        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                val tokenManager = com.example.drivebroom.utils.TokenManager(context)
+                val networkClient = com.example.drivebroom.network.NetworkClient(tokenManager)
+                val repo = com.example.drivebroom.repository.DriverRepository(networkClient.apiService)
+                @Suppress("UNCHECKED_CAST")
+                return com.example.drivebroom.viewmodel.TripDetailsViewModel(repo, tokenManager) as T
+            }
+        }
+    )
+    val completedTrips by viewModel.completedTrips.collectAsState()
 
     // Date logic for filtering
     val today = remember {
@@ -95,6 +112,41 @@ fun DriverHomeScreen(
             ) {
                 CircularProgressIndicator()
             }
+        } else if (showCompletedTrips) {
+            // Completed Trips Screen
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(16.dp)
+            ) {
+                Text("Completed Trips", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                println("Completed trips: $completedTrips") // Debug log
+                if (completedTrips.isEmpty()) {
+                    Text("No completed trips found.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    completedTrips.forEach { trip ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            elevation = CardDefaults.cardElevation(2.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("Trip #${trip.id}", fontWeight = FontWeight.Bold)
+                                Text("Destination: ${trip.destination}")
+                                Text("Date: ${trip.travel_date}")
+                                Text("Status: ${trip.status}")
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = { showCompletedTrips = false }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Back to Dashboard")
+                }
+            }
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -108,6 +160,20 @@ fun DriverHomeScreen(
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier.padding(bottom = 32.dp)
                     )
+                }
+                // Add Completed Trips Button
+                item {
+                    Button(
+                        onClick = {
+                            viewModel.loadCompletedTrips()
+                            showCompletedTrips = true
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Text("View Completed Trips")
+                    }
                 }
                 item {
                     Button(
