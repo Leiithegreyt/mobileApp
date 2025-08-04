@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import com.example.drivebroom.viewmodel.TripDetailsViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
+import com.example.drivebroom.ui.components.StatusChip
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +49,7 @@ fun DriverHomeScreen(
         }
     )
     val completedTrips by viewModel.completedTrips.collectAsState()
+    val completedTripsMessage by viewModel.completedTripsMessage.collectAsState()
 
     // Date logic for filtering
     val today = remember {
@@ -59,7 +61,9 @@ fun DriverHomeScreen(
         cal.time
     }
     val millisInDay = 24 * 60 * 60 * 1000
+    // In the LazyColumn for today's trips and next trips, filter out completed trips
     val todaysTrips = trips.filter { trip ->
+        trip.status?.lowercase() != "completed" &&
         trip.travel_date?.let {
             try {
                 val tripDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).parse(it)
@@ -70,6 +74,7 @@ fun DriverHomeScreen(
         } ?: false
     }
     val nextTrips = trips.filter { trip ->
+        trip.status?.lowercase() != "completed" &&
         trip.travel_date?.let {
             try {
                 val tripDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.getDefault()).parse(it)
@@ -113,40 +118,11 @@ fun DriverHomeScreen(
                 CircularProgressIndicator()
             }
         } else if (showCompletedTrips) {
-            // Completed Trips Screen
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp)
-            ) {
-                Text("Completed Trips", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                println("Completed trips: $completedTrips") // Debug log
-                if (completedTrips.isEmpty()) {
-                    Text("No completed trips found.", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    completedTrips.forEach { trip ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            elevation = CardDefaults.cardElevation(2.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text("Trip #${trip.id}", fontWeight = FontWeight.Bold)
-                                Text("Destination: ${trip.destination}")
-                                Text("Date: ${trip.travel_date}")
-                                Text("Status: ${trip.status}")
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { showCompletedTrips = false }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Back to Dashboard")
-                }
-            }
+            // Trip Log Screen
+            TripLogScreen(
+                completedTrips = completedTrips,
+                onBack = { showCompletedTrips = false }
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
@@ -264,6 +240,27 @@ fun NextScheduleScreen(
                 .padding(16.dp)
         ) {
             item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.Default.ExitToApp,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Text(
+                        text = "Back",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            item {
                 Text(
                     text = "Upcoming Trips",
                     style = MaterialTheme.typography.titleLarge,
@@ -295,9 +292,10 @@ fun TripCard(
     // Format travel_date and travel_time
     val formattedTravelDate = trip.travel_date?.let { formatDateOnly(it) } ?: "-"
     val formattedTravelTime = trip.travel_time?.let { formatTimeOnly(it) } ?: "-"
-
+    val isCompleted = trip.status?.lowercase() == "completed"
     Card(
         onClick = onClick,
+        enabled = !isCompleted,
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 16.dp),
@@ -322,9 +320,7 @@ fun TripCard(
                     fontWeight = FontWeight.Bold
                 )
             }
-
             Divider(modifier = Modifier.padding(vertical = 8.dp))
-
             // Main details
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -335,36 +331,14 @@ fun TripCard(
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     LabelValue(label = "Purpose", value = trip.purpose ?: "-")
-                    LabelValue(label = "Requested By", value = trip.requested_by ?: "-")
+                    LabelValue(label = "Requested By", value = trip.requestedBy ?: "-")
                 }
             }
         }
     }
 }
 
-@Composable
-fun StatusChip(status: String) {
-    val (color, text) = when (status.lowercase()) {
-        "approved" -> Color(0xFF4CAF50) to "Approved" // Green
-        "pending" -> MaterialTheme.colorScheme.tertiary to "Pending"
-        "in_progress" -> MaterialTheme.colorScheme.primary to "In Progress"
-        "completed" -> MaterialTheme.colorScheme.secondary to "Completed"
-        "cancelled" -> MaterialTheme.colorScheme.error to "Cancelled"
-        else -> MaterialTheme.colorScheme.surfaceVariant to status
-    }
 
-    Surface(
-        color = color.copy(alpha = 0.1f),
-        shape = MaterialTheme.shapes.small
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = color
-        )
-    }
-}
 
 @Composable
 fun LabelValue(label: String, value: String) {

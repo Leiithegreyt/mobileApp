@@ -123,9 +123,15 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 tripDetailsError.value = null
                                 coroutineScope.launch {
                                     try {
-                                        val details = repository.apiService.getTripDetails(tripId)
-                                        tripDetailsState.value = details
-                                        tripDetailsLoading.value = false
+                                        val token = tokenManager.getToken()?.let { "Bearer $it" } ?: throw Exception("No auth token")
+                                        val result = repository.getTripDetails(tripId, token)
+                                        result.onSuccess { details ->
+                                            tripDetailsState.value = details
+                                            tripDetailsLoading.value = false
+                                        }.onFailure { e ->
+                                            tripDetailsError.value = e.message ?: "Failed to load trip details"
+                                            tripDetailsLoading.value = false
+                                        }
                                     } catch (e: Exception) {
                                         tripDetailsError.value = e.message ?: "Failed to load trip details"
                                         tripDetailsLoading.value = false
@@ -151,9 +157,15 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 tripDetailsError.value = null
                                 coroutineScope.launch {
                                     try {
-                                        val details = repository.apiService.getTripDetails(tripId)
-                                        tripDetailsState.value = details
-                                        tripDetailsLoading.value = false
+                                        val token = tokenManager.getToken()?.let { "Bearer $it" } ?: throw Exception("No auth token")
+                                        val result = repository.getTripDetails(tripId, token)
+                                        result.onSuccess { details ->
+                                            tripDetailsState.value = details
+                                            tripDetailsLoading.value = false
+                                        }.onFailure { e ->
+                                            tripDetailsError.value = e.message ?: "Failed to load trip details"
+                                            tripDetailsLoading.value = false
+                                        }
                                     } catch (e: Exception) {
                                         tripDetailsError.value = e.message ?: "Failed to load trip details"
                                         tripDetailsLoading.value = false

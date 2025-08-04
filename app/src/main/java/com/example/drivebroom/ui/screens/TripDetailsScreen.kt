@@ -22,7 +22,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import java.time.LocalTime
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.text.style.TextOverflow
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripDetailsScreen(
     tripDetails: TripDetails,
@@ -43,8 +48,6 @@ fun TripDetailsScreen(
     val actionState by viewModel.actionState.collectAsState()
     val latestTripDetails by viewModel.tripDetails.collectAsState()
     val itinerary by viewModel.itinerary.collectAsState()
-    var showCompletedTrips by remember { mutableStateOf(false) }
-    val completedTrips by viewModel.completedTrips.collectAsState()
 
     // On first composition, load trip details
     LaunchedEffect(tripDetails.id) {
@@ -71,6 +74,13 @@ fun TripDetailsScreen(
     var tripStarted by remember { mutableStateOf(false) }
     var canArrive by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
+
+    // Calculate total distance travelled from itinerary
+    val totalDistanceTravelled = if (itinerary.size >= 2) {
+        // Sum of (arrival - departure) for each leg, or net change
+        val odometerValues = itinerary.map { it.odometer }
+        odometerValues.last() - odometerValues.first()
+    } else 0.0
 
     // Format dates
     val formattedTravelDate = try {
@@ -101,145 +111,124 @@ fun TripDetailsScreen(
         emptyList()
     }
 
-    Card(
-        modifier = Modifier
-            .padding(16.dp)
-            .fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(4.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Trip Details", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
-            Text("Trip #: ${trip.id}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            trip.vehicle?.let { vehicle ->
-                Text("Vehicle: ${vehicle.plate_number}", style = MaterialTheme.typography.bodyMedium)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Destination: ${trip.destination}", style = MaterialTheme.typography.bodyMedium)
-            Text("Date/Time: $formattedTravelDate, $formattedTravelTime", style = MaterialTheme.typography.bodyMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Authorized Passenger(s):", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-            passengersList.forEach { passenger ->
-                Text(passenger, style = MaterialTheme.typography.bodySmall)
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // Show itinerary table (5 columns)
-            if (itinerary.isNotEmpty()) {
-                Text("Itinerary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                    Text("Odometer", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                    Text("Time (Dep)", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                    Text("Departure", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                    Text("Time (Arr)", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                    Text("Arrival", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                }
-                Column {
-                    itinerary.forEachIndexed { idx, leg ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(leg.odometer.toString(), modifier = Modifier.weight(1f))
-                            Text(leg.timeDepartureDisplay ?: "", modifier = Modifier.weight(1f))
-                            Text(leg.departure, modifier = Modifier.weight(1f))
-                            Text(leg.timeArrivalDisplay ?: "", modifier = Modifier.weight(1f))
-                            Text(leg.arrival ?: "", modifier = Modifier.weight(1f))
-                        }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Trip Details") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
+            )
+        }
+    ) { padding ->
+        Card(
+            modifier = Modifier
+                .padding(padding)
+                .padding(16.dp)
+                .fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                // Trip Info
+                Text("Trip #${trip.id}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                trip.vehicle?.let { vehicle ->
+                    Text("Vehicle: ${vehicle.plateNumber}", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text("Destination: ${trip.destination}", style = MaterialTheme.typography.bodyMedium)
+                Text("Date/Time: $formattedTravelDate, $formattedTravelTime", style = MaterialTheme.typography.bodyMedium)
+                Text("Total Distance Travelled: ${String.format("%.2f", totalDistanceTravelled)} km", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Divider(Modifier.padding(vertical = 12.dp))
 
-            // Button logic
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                Button(
-                    onClick = { showDepartureDialog = true },
-                    enabled = !tripStarted || canArrive,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Departure") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = { showArrivalDialog = true },
-                    enabled = tripStarted && canArrive,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Arrival") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = { showReturnDialog = true },
-                    enabled = canReturn,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Returned") }
-            }
-
-            if (actionState is TripActionState.Loading) {
-                Spacer(modifier = Modifier.height(8.dp))
-                CircularProgressIndicator()
-            }
-            if (actionState is TripActionState.Error) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text((actionState as TripActionState.Error).message, color = MaterialTheme.colorScheme.error)
-            }
-            if (actionState is TripActionState.Success) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Action successful!", color = MaterialTheme.colorScheme.primary)
-                // Optionally refresh trip details here
-                viewModel.resetActionState()
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                Text("Back")
-            }
-
-            // After the main action button, add a restart button for testing (not shown if completed)
-            if (trip.status.lowercase() != "completed") {
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = { viewModel.restartTrip(trip.id) },
-                    modifier = Modifier
-                        .fillMaxWidth(0.5f)
-                        .align(Alignment.CenterHorizontally),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                // Passengers
+                Text("Authorized Passenger(s):", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.Start
                 ) {
-                    Text("Restart (Test)", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-
-            // Add a button to view completed trips
-            Button(
-                onClick = {
-                    viewModel.loadCompletedTrips()
-                    showCompletedTrips = true
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("View Completed Trips") }
-            Spacer(modifier = Modifier.height(8.dp))
-            // Show completed trips list if requested
-            if (showCompletedTrips) {
-                Text("Completed Trips", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                completedTrips.forEach { trip ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clickable { /* TODO: Show trip details/edit screen */ },
-                        elevation = CardDefaults.cardElevation(2.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("Trip #${trip.id}", fontWeight = FontWeight.Bold)
-                            Text("Destination: ${trip.destination}")
-                            Text("Date: ${trip.travel_date}")
-                            Text("Status: ${trip.status}")
-                        }
+                    passengersList.forEach { passenger ->
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(passenger, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { showCompletedTrips = false }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Back to Active Trips")
+
+                Spacer(Modifier.height(16.dp))
+                Divider()
+
+                // Itinerary
+                if (itinerary.isNotEmpty()) {
+                    Text("Itinerary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                        Text("Odometer", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text("Time (Dep)", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text("Departure", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text("Time (Arr)", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text("Arrival", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    }
+                    Column {
+                        itinerary.forEach { leg ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(leg.odometer.toString(), modifier = Modifier.weight(1f))
+                                Text(leg.timeDepartureDisplay ?: "", modifier = Modifier.weight(1f))
+                                Text(leg.departure, modifier = Modifier.weight(1f))
+                                Text(leg.timeArrivalDisplay ?: "", modifier = Modifier.weight(1f))
+                                Text(leg.arrival ?: "", modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Action Buttons
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(
+                        onClick = { showDepartureDialog = true },
+                        enabled = !tripStarted || canArrive,
+                        modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
+                    ) { Text("Departure", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = { showArrivalDialog = true },
+                        enabled = tripStarted && canArrive,
+                        modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
+                    ) { Text("Arrival", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = { showReturnDialog = true },
+                        enabled = canReturn,
+                        modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
+                    ) { Text("Returned", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+
+                // Status/Loading/Error
+                if (actionState is TripActionState.Loading) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CircularProgressIndicator()
+                }
+                if (actionState is TripActionState.Error) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text((actionState as TripActionState.Error).message, color = MaterialTheme.colorScheme.error)
+                }
+                if (actionState is TripActionState.Success) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Action successful!", color = MaterialTheme.colorScheme.primary)
+                    viewModel.resetActionState()
                 }
             }
         }
@@ -357,6 +346,11 @@ fun TripDetailsScreen(
     // For return dialog, collect signatures for each passenger (now removed, just show details)
 
     if (showReturnDialog) {
+        // Calculate fuel balance end automatically
+        val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
+        val fuelUsed = fuelUsedInput.toDoubleOrNull() ?: 0.0
+        val initialBalance = lastFuelBalanceStart ?: 0.0
+        val calculatedFuelBalanceEnd = initialBalance + fuelPurchased - fuelUsed
         AlertDialog(
             onDismissRequest = { showReturnDialog = false },
             title = { Text("Trip Return Details") },
@@ -375,9 +369,11 @@ fun TripDetailsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = fuelBalanceEndInput,
-                        onValueChange = { fuelBalanceEndInput = it },
-                        label = { Text("Fuel Balance End (L)") }
+                        value = if (fuelPurchasedInput.isNotBlank() || fuelUsedInput.isNotBlank()) String.format("%.2f", calculatedFuelBalanceEnd) else "",
+                        onValueChange = {},
+                        label = { Text("Fuel Balance End (L)") },
+                        readOnly = true,
+                        enabled = false
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
@@ -420,12 +416,11 @@ fun TripDetailsScreen(
                 TextButton(onClick = {
                     val fuelPurchased = fuelPurchasedInput.toDoubleOrNull()
                     val fuelUsed = fuelUsedInput.toDoubleOrNull()
-                    val fuelBalanceEnd = fuelBalanceEndInput.toDoubleOrNull()
+                    val fuelBalanceEnd = calculatedFuelBalanceEnd
                     val odometerArrival = odometerArrivalInput.toDoubleOrNull()
                     if (
                         fuelPurchased != null &&
                         fuelUsed != null &&
-                        fuelBalanceEnd != null &&
                         odometerArrival != null &&
                         passengersList.isNotEmpty() &&
                         lastFuelBalanceStart != null

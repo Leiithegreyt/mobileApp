@@ -22,7 +22,8 @@ class DriverHomeViewModel(private val apiService: ApiService) : ViewModel() {
             _uiState.value = DriverHomeUiState.Loading
             try {
                 val profile = apiService.getDriverProfile()
-                val trips = apiService.getAssignedTrips()
+                val tripsResponse = apiService.getAssignedTrips()
+                val trips = tripsResponse.trips
                 _uiState.value = DriverHomeUiState.Success(profile, trips)
             } catch (e: Exception) {
                 _uiState.value = DriverHomeUiState.Error(e.message ?: "Failed to load data")

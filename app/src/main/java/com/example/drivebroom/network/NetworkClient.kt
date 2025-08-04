@@ -27,6 +27,29 @@ class NetworkClient(private val tokenManager: TokenManager) {
                 .build()
             chain.proceed(request)
         }
+        .addInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            val url = chain.request().url.toString()
+            Log.d("NetworkClient", "API Call: $url")
+            Log.d("NetworkClient", "Request headers: ${chain.request().headers}")
+            Log.d("NetworkClient", "Request method: ${chain.request().method}")
+            Log.d("NetworkClient", "Response code: ${response.code}")
+            
+            try {
+                val responseBody = response.body
+                val responseString = responseBody?.string()
+                Log.d("NetworkClient", "Response for $url: $responseString")
+                
+                // Recreate the response body since we consumed it
+                val newBody = responseString?.let { 
+                    okhttp3.ResponseBody.create(responseBody.contentType(), it)
+                }
+                response.newBuilder().body(newBody).build()
+            } catch (e: Exception) {
+                Log.e("NetworkClient", "Error reading response for $url: ${e.message}")
+                response
+            }
+        }
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

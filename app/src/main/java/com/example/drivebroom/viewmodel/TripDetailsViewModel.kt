@@ -8,6 +8,7 @@ import com.example.drivebroom.network.ArrivalBody
 import com.example.drivebroom.network.ReturnBody
 import com.example.drivebroom.network.TripDetails
 import com.example.drivebroom.network.PassengerDetail
+import com.example.drivebroom.network.CompletedTrip
 import com.example.drivebroom.utils.TokenManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,8 +45,11 @@ class TripDetailsViewModel(
     private val _itinerary = MutableStateFlow<List<ItineraryLeg>>(emptyList())
     val itinerary: StateFlow<List<ItineraryLeg>> = _itinerary
 
-    private val _completedTrips = MutableStateFlow<List<TripDetails>>(emptyList())
-    val completedTrips: StateFlow<List<TripDetails>> = _completedTrips
+    val _completedTrips = MutableStateFlow<List<CompletedTrip>>(emptyList())
+    val completedTrips: StateFlow<List<CompletedTrip>> = _completedTrips
+    
+    val _completedTripsMessage = MutableStateFlow<String>("")
+    val completedTripsMessage: StateFlow<String> = _completedTripsMessage
 
     fun addDepartureLeg(odometer: Double, timeDeparture: String, departure: String, timeDepartureDisplay: String) {
         _itinerary.update { it + ItineraryLeg(odometer, timeDeparture, departure, timeDepartureDisplay = timeDepartureDisplay) }
@@ -169,16 +173,112 @@ class TripDetailsViewModel(
     }
 
     fun loadCompletedTrips() {
-        println("Fetching completed trips...")
         viewModelScope.launch {
-            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: return@launch
-            val result = repository.getCompletedTrips(token)
-            result.onSuccess { trips ->
-                println("Completed trips result: $trips")
-                _completedTrips.value = trips
+            try {
+                val token = tokenManager.getToken()?.let { "Bearer $it" } ?: return@launch
+                println("TripDetailsViewModel: Loading completed trips...")
+                val result = repository.getCompletedTrips(token)
+                result.onSuccess { trips ->
+                    println("TripDetailsViewModel: Success - Got ${trips.size} trips")
+                    _completedTrips.value = trips
+                    _completedTripsMessage.value = if (trips.isNotEmpty()) {
+                        "Found ${trips.size} completed trips"
+                    } else {
+                        "No completed trips found"
+                    }
+                }
+                result.onFailure { e ->
+                    println("TripDetailsViewModel: Error - ${e.message}")
+                    _completedTripsMessage.value = "Error: ${e.message}"
+                }
+            } catch (e: Exception) {
+                println("TripDetailsViewModel: Exception - ${e.message}")
+                _completedTripsMessage.value = "Error: ${e.message}"
             }
-            result.onFailure { e ->
-                println("Error fetching completed trips: ${e.message}")
+        }
+    }
+
+    fun testBackendConnection() {
+        println("TripDetailsViewModel: Testing backend connection...")
+        viewModelScope.launch {
+            try {
+                val rawToken = tokenManager.getToken()
+                println("TripDetailsViewModel: Test - Raw token: $rawToken")
+                
+                // Test a simple API call first to see if authentication works
+                println("TripDetailsViewModel: Testing driver profile API...")
+                val profileResult = repository.getDriverProfile("Bearer $rawToken")
+                profileResult.onSuccess { profile ->
+                    println("TripDetailsViewModel: Profile API works - Driver ID: ${profile.id}")
+                    
+                    // Now test the completed trips API
+                    println("TripDetailsViewModel: Testing completed trips API...")
+                    val result = repository.getCompletedTrips("Bearer $rawToken")
+                    result.onSuccess { trips ->
+                        println("TripDetailsViewModel: Test SUCCESS - Got ${trips.size} trips")
+                        if (trips.isNotEmpty()) {
+                            trips.forEachIndexed { index, trip ->
+                                println("TripDetailsViewModel: Test - Trip $index: ID=${trip.id}, Destination=${trip.destination}, Status=${trip.status}")
+                            }
+                        } else {
+                            println("TripDetailsViewModel: Test - No trips found in response")
+                            println("TripDetailsViewModel: This means either:")
+                            println("TripDetailsViewModel: 1. No completed trips exist for this driver")
+                            println("TripDetailsViewModel: 2. Backend query is not finding the trips")
+                            println("TripDetailsViewModel: 3. Driver ID mismatch")
+                        }
+                    }
+                    result.onFailure { e ->
+                        println("TripDetailsViewModel: Test FAILED - ${e.message}")
+                        e.printStackTrace()
+                    }
+                }
+                profileResult.onFailure { e ->
+                    println("TripDetailsViewModel: Test FAILED - Profile API: ${e.message}")
+                    e.printStackTrace()
+                }
+            } catch (e: Exception) {
+                println("TripDetailsViewModel: Test EXCEPTION - ${e.message}")
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun testNetworkConnectivity() {
+        println("TripDetailsViewModel: Testing network connectivity...")
+        viewModelScope.launch {
+            try {
+                val rawToken = tokenManager.getToken()
+                println("TripDetailsViewModel: Network test - Raw token: $rawToken")
+                
+                // Test the simplest API call possible
+                println("TripDetailsViewModel: Testing /api/me endpoint...")
+                val profileResult = repository.getDriverProfile("Bearer $rawToken")
+                profileResult.onSuccess { profile ->
+                    println("TripDetailsViewModel: SUCCESS - Network connectivity works!")
+                    println("TripDetailsViewModel: Driver ID: ${profile.id}, Name: ${profile.name}")
+                    _completedTripsMessage.value = "Network OK - Driver: ${profile.name}"
+                    
+                    // If network works, test the completed trips endpoint
+                    println("TripDetailsViewModel: Now testing completed trips endpoint...")
+                    val completedResult = repository.getCompletedTrips("Bearer $rawToken")
+                    completedResult.onSuccess { trips ->
+                        println("TripDetailsViewModel: SUCCESS - Completed trips API works!")
+                        println("TripDetailsViewModel: Found ${trips.size} completed trips")
+                        _completedTripsMessage.value = "Completed trips OK - Found ${trips.size} trips"
+                    }
+                    completedResult.onFailure { e ->
+                        println("TripDetailsViewModel: FAILED - Completed trips API: ${e.message}")
+                        _completedTripsMessage.value = "Completed trips Error: ${e.message}"
+                    }
+                }
+                profileResult.onFailure { e ->
+                    println("TripDetailsViewModel: FAILED - Network connectivity issue: ${e.message}")
+                    _completedTripsMessage.value = "Network Error: ${e.message}"
+                }
+            } catch (e: Exception) {
+                println("TripDetailsViewModel: EXCEPTION - Network test failed: ${e.message}")
+                _completedTripsMessage.value = "Network Exception: ${e.message}"
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.example.drivebroom.network
 
+import com.google.gson.annotations.SerializedName
 import retrofit2.http.*
 
 interface ApiService {
@@ -10,13 +11,13 @@ interface ApiService {
     suspend fun getDriverProfile(): DriverProfile
 
     @GET("driver/trips")
-    suspend fun getAssignedTrips(): List<Trip>
+    suspend fun getAssignedTrips(): AssignedTripsResponse
 
     @GET("driver/trips/{id}")
     suspend fun getTripDetails(@Path("id") tripId: Int): TripDetails
 
     @GET("driver/trips/completed")
-    suspend fun getCompletedTrips(@Header("Authorization") token: String): List<TripDetails>
+    suspend fun getCompletedTrips(@Header("Authorization") token: String): CompletedTripsResponse
 
     @POST("logout")
     suspend fun logout(): LogoutResponse
@@ -78,7 +79,7 @@ data class Trip(
     val travel_time: String?,
     val status: String?,
     val pickup_location: String?,
-    val requested_by: String?
+    @SerializedName("requested_by") val requestedBy: String?
 )
 
 data class TripDetails(
@@ -94,15 +95,30 @@ data class TripDetails(
     val vehicle: Vehicle?
 )
 
+data class CompletedTrip(
+    @SerializedName("id") val id: Int,
+    @SerializedName("driver_id") val driverId: Int,
+    @SerializedName("status") val status: String?,
+    @SerializedName("destination") val destination: String?,
+    @SerializedName("requested_by") val requestedBy: String?,
+    @SerializedName("vehicle_info") val vehicleInfo: Vehicle?,
+    @SerializedName("formatted_travel_date") val formattedTravelDate: String?,
+    @SerializedName("formatted_created_at") val formattedCreatedAt: String?,
+    @SerializedName("travel_date") val travelDate: String?,
+    @SerializedName("travel_time") val travelTime: String?,
+    @SerializedName("purpose") val purpose: String?,
+    @SerializedName("passengers") val passengers: String?
+)
+
 data class Vehicle(
-    val id: Int,
-    val plate_number: String,
-    val model: String,
-    val type: String,
-    val capacity: Int,
-    val status: String,
-    val last_maintenance_date: String,
-    val next_maintenance_date: String
+    @SerializedName("id") val id: Int,
+    @SerializedName("plate_number") val plateNumber: String?,
+    @SerializedName("model") val model: String?,
+    @SerializedName("type") val type: String?,
+    @SerializedName("capacity") val capacity: Int?,
+    @SerializedName("status") val status: String?,
+    @SerializedName("last_maintenance_date") val lastMaintenanceDate: String?,
+    @SerializedName("next_maintenance_date") val nextMaintenanceDate: String?
 )
 
 data class LogoutResponse(
@@ -137,4 +153,16 @@ data class PassengerDetail(
     val name: String,
     val destination: String,
     val signature: String
+)
+
+data class CompletedTripsResponse(
+    @SerializedName("trips") val trips: List<CompletedTrip>,
+    @SerializedName("count") val count: Int?,
+    @SerializedName("message") val message: String? = null
+)
+
+data class AssignedTripsResponse(
+    val trips: List<Trip>,
+    val message: String,
+    val count: Int
 ) 
