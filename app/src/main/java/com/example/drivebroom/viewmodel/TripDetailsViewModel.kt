@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import android.util.Log
 
 sealed class TripActionState {
     object Idle : TripActionState()
@@ -81,11 +82,16 @@ class TripDetailsViewModel(
     fun logDeparture(tripId: Int, odometerStart: Double, fuelBalanceStart: Double) {
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
-            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+            val rawToken = tokenManager.getToken()
+            Log.d("TripDetailsViewModel", "Raw token from manager: $rawToken")
+            val token = rawToken?.let { "Bearer $it" } ?: run {
+                Log.e("TripDetailsViewModel", "No auth token available")
                 _actionState.value = TripActionState.Error("No auth token")
                 return@launch
             }
-            val result = repository.logDeparture(tripId, DepartureBody(odometerStart, fuelBalanceStart), token)
+            Log.d("TripDetailsViewModel", "Attempting departure for trip $tripId with odometer: $odometerStart, fuel: $fuelBalanceStart")
+            Log.d("TripDetailsViewModel", "Using token: $token")
+            val result = repository.logDeparture(tripId, DepartureBody(odometerStart, fuelBalanceStart))
             _actionState.value = result.fold(
                 onSuccess = {
                     loadTripDetails(tripId)
@@ -103,7 +109,7 @@ class TripDetailsViewModel(
                 _actionState.value = TripActionState.Error("No auth token")
                 return@launch
             }
-            val result = repository.logArrival(tripId, ArrivalBody(odometerArrival), token)
+            val result = repository.logArrival(tripId, ArrivalBody(odometerArrival))
             _actionState.value = result.fold(
                 onSuccess = {
                     loadTripDetails(tripId)
@@ -146,7 +152,7 @@ class TripDetailsViewModel(
                 odometer_arrival = odometerArrival,
                 itinerary = itinerary
             )
-            val result = repository.logReturn(tripId, returnBody, token)
+            val result = repository.logReturn(tripId, returnBody)
             _actionState.value = result.fold(
                 onSuccess = { TripActionState.Success },
                 onFailure = { TripActionState.Error(it.message ?: "Return failed") }

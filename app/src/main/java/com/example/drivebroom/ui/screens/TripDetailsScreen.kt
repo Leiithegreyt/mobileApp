@@ -74,10 +74,13 @@ fun TripDetailsScreen(
     var tripStarted by remember { mutableStateOf(false) }
     var canArrive by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
+    var lastOdometerArrival by remember { mutableStateOf<Double?>(null) }
 
-    // Calculate total distance travelled from itinerary
-    val totalDistanceTravelled = if (itinerary.size >= 2) {
-        // Sum of (arrival - departure) for each leg, or net change
+    // Calculate total distance travelled using lastOdometerArrival if available
+    val departureOdometer = itinerary.firstOrNull()?.odometer
+    val totalDistanceTravelled = if (departureOdometer != null && lastOdometerArrival != null && lastOdometerArrival!! >= departureOdometer) {
+        lastOdometerArrival!! - departureOdometer
+    } else if (itinerary.size >= 2) {
         val odometerValues = itinerary.map { it.odometer }
         odometerValues.last() - odometerValues.first()
     } else 0.0
@@ -425,6 +428,7 @@ fun TripDetailsScreen(
                         passengersList.isNotEmpty() &&
                         lastFuelBalanceStart != null
                     ) {
+                        lastOdometerArrival = odometerArrival
                         val passengerDetailsToSend = passengersList.map { name ->
                             com.example.drivebroom.network.PassengerDetail(
                                 name = name,

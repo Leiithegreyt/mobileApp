@@ -53,9 +53,19 @@ class LoginViewModel(
                         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                             if (task.isSuccessful) {
                                 val fcmToken = task.result
+                                Log.d("LoginViewModel", "FCM token retrieved: $fcmToken")
                                 viewModelScope.launch {
-                                    repository.updateFcmToken(fcmToken)
+                                    try {
+                                        repository.updateFcmToken(fcmToken)
+                                        Log.d("LoginViewModel", "FCM token updated successfully")
+                                    } catch (e: Exception) {
+                                        Log.e("LoginViewModel", "Failed to update FCM token", e)
+                                        // Don't fail login if FCM token update fails
+                                    }
                                 }
+                            } else {
+                                Log.e("LoginViewModel", "Failed to get FCM token", task.exception)
+                                // Don't fail login if FCM token retrieval fails
                             }
                         }
                     } ?: run {

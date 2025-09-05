@@ -42,22 +42,32 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
-    suspend fun logDeparture(tripId: Int, body: DepartureBody, token: String): Result<Unit> {
+    suspend fun logDeparture(tripId: Int, body: DepartureBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.logDeparture(tripId, body, token)
-                if (response.isSuccessful) Result.success(Unit)
-                else Result.failure(Exception(response.errorBody()?.string() ?: "Departure failed"))
+                Log.d("DriverRepository", "Logging departure for trip $tripId with body: $body")
+                val response = apiService.logDeparture(tripId, body)
+                Log.d("DriverRepository", "Departure response code: ${response.code()}")
+                Log.d("DriverRepository", "Departure response headers: ${response.headers()}")
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "Departure successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "Departure failed with code ${response.code()}: $errorBody")
+                    Result.failure(Exception("Departure failed: ${response.code()} - $errorBody"))
+                }
             } catch (e: Exception) {
+                Log.e("DriverRepository", "Departure exception", e)
                 Result.failure(e)
             }
         }
     }
 
-    suspend fun logArrival(tripId: Int, body: ArrivalBody, token: String): Result<Unit> {
+    suspend fun logArrival(tripId: Int, body: ArrivalBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.logArrival(tripId, body, token)
+                val response = apiService.logArrival(tripId, body)
                 if (response.isSuccessful) Result.success(Unit)
                 else Result.failure(Exception(response.errorBody()?.string() ?: "Arrival failed"))
             } catch (e: Exception) {
@@ -66,10 +76,10 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
-    suspend fun logReturn(tripId: Int, body: ReturnBody, token: String): Result<Unit> {
+    suspend fun logReturn(tripId: Int, body: ReturnBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.logReturn(tripId, body, token)
+                val response = apiService.logReturn(tripId, body)
                 if (response.isSuccessful) Result.success(Unit)
                 else Result.failure(Exception(response.errorBody()?.string() ?: "Return failed"))
             } catch (e: Exception) {

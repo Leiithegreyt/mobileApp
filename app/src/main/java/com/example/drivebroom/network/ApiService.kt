@@ -28,22 +28,19 @@ interface ApiService {
     @POST("trips/{tripId}/departure")
     suspend fun logDeparture(
         @Path("tripId") tripId: Int,
-        @Body body: DepartureBody,
-        @Header("Authorization") token: String
+        @Body body: DepartureBody
     ): retrofit2.Response<Unit>
 
     @POST("trips/{tripId}/arrival")
     suspend fun logArrival(
         @Path("tripId") tripId: Int,
-        @Body body: ArrivalBody,
-        @Header("Authorization") token: String
+        @Body body: ArrivalBody
     ): retrofit2.Response<Unit>
 
     @POST("trips/{tripId}/return")
     suspend fun logReturn(
         @Path("tripId") tripId: Int,
-        @Body body: ReturnBody,
-        @Header("Authorization") token: String
+        @Body body: ReturnBody
     ): retrofit2.Response<Unit>
 }
 
@@ -130,7 +127,10 @@ data class FcmTokenRequest(val fcm_token: String)
 
 // Trip action payloads
 
-data class DepartureBody(val odometer_start: Double, val fuel_balance_start: Double)
+data class DepartureBody(
+    @SerializedName("odometer_start") val odometerStart: Double, 
+    @SerializedName("fuel_balance_start") val fuelBalanceStart: Double
+)
 data class ArrivalBody(val odometer_arrival: Double)
 data class ItineraryLegDto(
     val odometer: Double,

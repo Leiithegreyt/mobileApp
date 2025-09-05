@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Configuration for tripsystem.online -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">tripsystem.online</domain>
+        <trust-anchors>
+            <!-- Trust the system CAs -->
+            <certificates src="system"/>
+            <!-- Trust user added CAs -->
+            <certificates src="user"/>
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Configuration for Firebase services -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">firebase.googleapis.com</domain>
+        <domain includeSubdomains="true">fcm.googleapis.com</domain>
+        <domain includeSubdomains="true">firebaseinstallations.googleapis.com</domain>
+        <domain includeSubdomains="true">firebaseremoteconfig.googleapis.com</domain>
+        <domain includeSubdomains="true">firebaseappcheck.googleapis.com</domain>
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Allow cleartext traffic for local development -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">192.168.254.133</domain>
+    </domain-config>
+    
+    <!-- Base configuration for all other domains -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

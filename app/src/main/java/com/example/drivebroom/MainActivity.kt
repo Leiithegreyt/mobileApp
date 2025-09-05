@@ -34,12 +34,17 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import kotlinx.coroutines.launch
 import com.example.drivebroom.viewmodel.NavigationViewModel
+import com.google.firebase.FirebaseApp
 
 class MainActivity : ComponentActivity() {
     private lateinit var tokenManager: TokenManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize Firebase
+        FirebaseApp.initializeApp(this)
+        
         tokenManager = TokenManager(this)
         val tripIdFromIntent = intent.getStringExtra("trip_id")?.toIntOrNull()
         enableEdgeToEdge()
