@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModelStoreOwner
 import kotlinx.coroutines.launch
 import com.example.drivebroom.viewmodel.NavigationViewModel
 import com.google.firebase.FirebaseApp
+import android.util.Log
 
 class MainActivity : ComponentActivity() {
     private lateinit var tokenManager: TokenManager
@@ -46,6 +47,13 @@ class MainActivity : ComponentActivity() {
         FirebaseApp.initializeApp(this)
         
         tokenManager = TokenManager(this)
+        
+        // Set up authentication failure callback
+        tokenManager.setOnAuthFailureCallback {
+            Log.d("MainActivity", "Authentication failed - redirecting to login")
+            // The UI will automatically handle this through the login state
+        }
+        
         val tripIdFromIntent = intent.getStringExtra("trip_id")?.toIntOrNull()
         enableEdgeToEdge()
         setContent {
@@ -128,8 +136,7 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 tripDetailsError.value = null
                                 coroutineScope.launch {
                                     try {
-                                        val token = tokenManager.getToken()?.let { "Bearer $it" } ?: throw Exception("No auth token")
-                                        val result = repository.getTripDetails(tripId, token)
+                                        val result = repository.getTripDetails(tripId)
                                         result.onSuccess { details ->
                                             tripDetailsState.value = details
                                             tripDetailsLoading.value = false
@@ -162,8 +169,7 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 tripDetailsError.value = null
                                 coroutineScope.launch {
                                     try {
-                                        val token = tokenManager.getToken()?.let { "Bearer $it" } ?: throw Exception("No auth token")
-                                        val result = repository.getTripDetails(tripId, token)
+                                        val result = repository.getTripDetails(tripId)
                                         result.onSuccess { details ->
                                             tripDetailsState.value = details
                                             tripDetailsLoading.value = false
@@ -230,8 +236,12 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
         }
         else -> {
             LoginScreen(
+                loginState = loginState,
                 onLoginSuccess = { email, password ->
                     loginViewModel.login(email, password)
+                },
+                onClearError = {
+                    loginViewModel.clearError()
                 }
             )
         }

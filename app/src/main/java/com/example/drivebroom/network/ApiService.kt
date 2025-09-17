@@ -17,7 +17,7 @@ interface ApiService {
     suspend fun getTripDetails(@Path("id") tripId: Int): TripDetails
 
     @GET("driver/trips/completed")
-    suspend fun getCompletedTrips(@Header("Authorization") token: String): CompletedTripsResponse
+    suspend fun getCompletedTrips(): CompletedTripsResponse
 
     @POST("logout")
     suspend fun logout(): LogoutResponse
@@ -133,26 +133,29 @@ data class DepartureBody(
 )
 data class ArrivalBody(val odometer_arrival: Double)
 data class ItineraryLegDto(
+    val odometer_start: Double, // Required - odometer reading at departure
     val odometer: Double,
+    val odometer_arrival: Double? = null, // NEW: Odometer reading at destination arrival
     val time_departure: String,
     val departure: String,
-    val time_arrival: String?,
-    val arrival: String?
+    val time_arrival: String,
+    val arrival: String
 )
 data class ReturnBody(
     val fuel_balance_start: Double,
     val fuel_purchased: Double,
     val fuel_used: Double,
     val fuel_balance_end: Double,
+    val distance_travelled: Double? = null, // Optional - can be calculated from itinerary
     val passenger_details: List<PassengerDetail>,
-    val driver_signature: String,
-    val odometer_arrival: Double,
+    val driver_signature: String? = null, // Optional - can be empty for now
+    val return_time: String? = null, // Optional - can be set to current time
     val itinerary: List<ItineraryLegDto>
 )
 data class PassengerDetail(
     val name: String,
-    val destination: String,
-    val signature: String
+    val destination: String? = null, // Optional
+    val signature: String? = null // Optional
 )
 
 data class CompletedTripsResponse(

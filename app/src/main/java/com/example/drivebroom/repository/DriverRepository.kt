@@ -88,12 +88,13 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
-    suspend fun getTripDetails(tripId: Int, token: String): Result<TripDetails> {
+    suspend fun getTripDetails(tripId: Int): Result<TripDetails> {
         return withContext(Dispatchers.IO) {
             try {
                 val response = apiService.getTripDetails(tripId)
                 Result.success(response)
             } catch (e: Exception) {
+                Log.e("DriverRepository", "Error getting trip details: ${e.message}")
                 Result.failure(e)
             }
         }
@@ -111,27 +112,26 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
-    suspend fun getDriverProfile(token: String): Result<DriverProfile> {
+    suspend fun getDriverProfile(): Result<DriverProfile> {
         return withContext(Dispatchers.IO) {
             try {
-                println("Repository: getDriverProfile() called")
+                Log.d("DriverRepository", "getDriverProfile() called")
                 val response = apiService.getDriverProfile()
-                println("Repository: Driver profile - ID: ${response.id}, Name: ${response.name}")
+                Log.d("DriverRepository", "Driver profile - ID: ${response.id}, Name: ${response.name}")
                 Result.success(response)
             } catch (e: Exception) {
-                println("Repository: Error in getDriverProfile: ${e.message}")
+                Log.e("DriverRepository", "Error in getDriverProfile: ${e.message}")
                 Result.failure(e)
             }
         }
     }
 
-    suspend fun getCompletedTrips(token: String): Result<List<CompletedTrip>> {
+    suspend fun getCompletedTrips(): Result<List<CompletedTrip>> {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d("Repository", "getCompletedTrips() called")
-                Log.d("Repository", "Token being used: $token")
+                Log.d("DriverRepository", "getCompletedTrips() called")
 
-                val response = apiService.getCompletedTrips(token)
+                val response = apiService.getCompletedTrips() // Token handled by interceptor
                 Log.d("Repository", "API call successful")
                 Log.d("Repository", "Raw response: $response")
                 Log.d("Repository", "Count: ${response.count}")

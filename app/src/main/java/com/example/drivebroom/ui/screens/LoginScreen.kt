@@ -1,21 +1,37 @@
 package com.example.drivebroom.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.drivebroom.viewmodel.LoginState
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: (String, String) -> Unit
+    loginState: LoginState,
+    onLoginSuccess: (String, String) -> Unit,
+    onClearError: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Get loading state and error message from loginState
+    val isLoading = loginState is LoginState.Loading
+    val errorMessage = when (loginState) {
+        is LoginState.Error -> loginState.message
+        else -> null
+    }
+    
+    // Clear error when user starts typing
+    LaunchedEffect(email, password) {
+        if (errorMessage != null) {
+            onClearError()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -50,16 +66,35 @@ fun LoginScreen(
         )
 
         errorMessage?.let {
-            Text(
-                text = it,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "⚠️",
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
         }
 
         Button(
             onClick = {
-                isLoading = true
                 onLoginSuccess(email, password)
             },
             modifier = Modifier

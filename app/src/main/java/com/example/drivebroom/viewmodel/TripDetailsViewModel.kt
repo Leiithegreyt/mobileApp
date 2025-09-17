@@ -35,7 +35,8 @@ class TripDetailsViewModel(
 
     // Itinerary state for multi-stop trips (5 columns)
     data class ItineraryLeg(
-        val odometer: Double,
+        val odometerStart: Double, // Odometer reading at departure
+        val odometerEnd: Double? = null, // Odometer reading at arrival
         val timeDeparture: String, // 24-hour for backend
         val departure: String,
         val timeArrival: String? = null, // 24-hour for backend
@@ -53,13 +54,25 @@ class TripDetailsViewModel(
     val completedTripsMessage: StateFlow<String> = _completedTripsMessage
 
     fun addDepartureLeg(odometer: Double, timeDeparture: String, departure: String, timeDepartureDisplay: String) {
-        _itinerary.update { it + ItineraryLeg(odometer, timeDeparture, departure, timeDepartureDisplay = timeDepartureDisplay) }
+        android.util.Log.d("TripDetailsViewModel", "=== VIEWMODEL DEPARTURE DEBUG ===")
+        android.util.Log.d("TripDetailsViewModel", "Received odometer: $odometer")
+        android.util.Log.d("TripDetailsViewModel", "Received timeDeparture: $timeDeparture")
+        android.util.Log.d("TripDetailsViewModel", "Received departure: $departure")
+        
+        val newLeg = ItineraryLeg(odometerStart = odometer, timeDeparture = timeDeparture, departure = departure, timeDepartureDisplay = timeDepartureDisplay)
+        android.util.Log.d("TripDetailsViewModel", "Created new leg: $newLeg")
+        
+        _itinerary.update { 
+            val updatedList = it + newLeg
+            android.util.Log.d("TripDetailsViewModel", "Updated itinerary list: $updatedList")
+            updatedList
+        }
     }
 
-    fun addArrivalToLastLeg(timeArrival: String, arrival: String, timeArrivalDisplay: String) {
+    fun addArrivalToLastLeg(odometerEnd: Double, timeArrival: String, arrival: String, timeArrivalDisplay: String) {
         _itinerary.update {
             if (it.isNotEmpty()) {
-                it.dropLast(1) + it.last().copy(timeArrival = timeArrival, arrival = arrival, timeArrivalDisplay = timeArrivalDisplay)
+                it.dropLast(1) + it.last().copy(odometerEnd = odometerEnd, timeArrival = timeArrival, arrival = arrival, timeArrivalDisplay = timeArrivalDisplay)
             } else it
         }
     }
@@ -70,8 +83,7 @@ class TripDetailsViewModel(
 
     fun loadTripDetails(tripId: Int) {
         viewModelScope.launch {
-            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: return@launch
-            val result = repository.getTripDetails(tripId, token)
+            val result = repository.getTripDetails(tripId)
             result.onSuccess { details ->
                 _tripDetails.value = details
             }
@@ -129,11 +141,8 @@ class TripDetailsViewModel(
         tripId: Int,
         fuelBalanceStart: Double,
         fuelPurchased: Double,
-        fuelUsed: Double,
         fuelBalanceEnd: Double,
-        passengerDetails: List<PassengerDetail>,
-        driverSignature: String,
-        odometerArrival: Double,
+        passengerDetails: List<com.example.drivebroom.network.PassengerDetail>,
         itinerary: List<com.example.drivebroom.network.ItineraryLegDto>
     ) {
         viewModelScope.launch {
@@ -142,16 +151,48 @@ class TripDetailsViewModel(
                 _actionState.value = TripActionState.Error("No auth token")
                 return@launch
             }
+            // Calculate fuel used: start + purchased - end
+            val fuelUsed = fuelBalanceStart + fuelPurchased - fuelBalanceEnd
+            
+            // Calculate total distance travelled from itinerary
+            val distanceTravelled = itinerary.sumOf { leg ->
+                leg.odometer - leg.odometer_start
+            }
+            
+            // Use the itinerary as-is from the UI (it already has correct odometer_start values)
+            val fixedItinerary = itinerary
+            
+            // Get current time for return_time
+            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            
             val returnBody = ReturnBody(
                 fuel_balance_start = fuelBalanceStart,
                 fuel_purchased = fuelPurchased,
                 fuel_used = fuelUsed,
                 fuel_balance_end = fuelBalanceEnd,
+                distance_travelled = distanceTravelled,
                 passenger_details = passengerDetails,
-                driver_signature = driverSignature,
-                odometer_arrival = odometerArrival,
-                itinerary = itinerary
+                driver_signature = "", // Empty for now, can be implemented later
+                return_time = currentTime,
+                itinerary = fixedItinerary
             )
+            
+            Log.d("TripDetailsViewModel", "Sending return data:")
+            Log.d("TripDetailsViewModel", "fuel_balance_start: $fuelBalanceStart")
+            Log.d("TripDetailsViewModel", "fuel_purchased: $fuelPurchased")
+            Log.d("TripDetailsViewModel", "fuel_used: $fuelUsed")
+            Log.d("TripDetailsViewModel", "fuel_balance_end: $fuelBalanceEnd")
+            Log.d("TripDetailsViewModel", "distance_travelled: $distanceTravelled")
+            Log.d("TripDetailsViewModel", "passenger_details count: ${passengerDetails.size}")
+            Log.d("TripDetailsViewModel", "driver_signature: ''")
+            Log.d("TripDetailsViewModel", "return_time: $currentTime")
+            Log.d("TripDetailsViewModel", "itinerary legs: ${fixedItinerary.size}")
+            
+            // Log each itinerary leg with fixed odometer values
+            fixedItinerary.forEachIndexed { index, leg ->
+                Log.d("TripDetailsViewModel", "Leg $index: start=${leg.odometer_start}, end=${leg.odometer}, distance=${leg.odometer - (leg.odometer_start ?: 0.0)}")
+            }
+            
             val result = repository.logReturn(tripId, returnBody)
             _actionState.value = result.fold(
                 onSuccess = { TripActionState.Success },
@@ -181,9 +222,8 @@ class TripDetailsViewModel(
     fun loadCompletedTrips() {
         viewModelScope.launch {
             try {
-                val token = tokenManager.getToken()?.let { "Bearer $it" } ?: return@launch
                 println("TripDetailsViewModel: Loading completed trips...")
-                val result = repository.getCompletedTrips(token)
+                val result = repository.getCompletedTrips()
                 result.onSuccess { trips ->
                     println("TripDetailsViewModel: Success - Got ${trips.size} trips")
                     _completedTrips.value = trips
@@ -213,13 +253,13 @@ class TripDetailsViewModel(
                 
                 // Test a simple API call first to see if authentication works
                 println("TripDetailsViewModel: Testing driver profile API...")
-                val profileResult = repository.getDriverProfile("Bearer $rawToken")
+                val profileResult = repository.getDriverProfile()
                 profileResult.onSuccess { profile ->
                     println("TripDetailsViewModel: Profile API works - Driver ID: ${profile.id}")
                     
                     // Now test the completed trips API
                     println("TripDetailsViewModel: Testing completed trips API...")
-                    val result = repository.getCompletedTrips("Bearer $rawToken")
+                    val result = repository.getCompletedTrips()
                     result.onSuccess { trips ->
                         println("TripDetailsViewModel: Test SUCCESS - Got ${trips.size} trips")
                         if (trips.isNotEmpty()) {
@@ -259,7 +299,7 @@ class TripDetailsViewModel(
                 
                 // Test the simplest API call possible
                 println("TripDetailsViewModel: Testing /api/me endpoint...")
-                val profileResult = repository.getDriverProfile("Bearer $rawToken")
+                val profileResult = repository.getDriverProfile()
                 profileResult.onSuccess { profile ->
                     println("TripDetailsViewModel: SUCCESS - Network connectivity works!")
                     println("TripDetailsViewModel: Driver ID: ${profile.id}, Name: ${profile.name}")
@@ -267,7 +307,7 @@ class TripDetailsViewModel(
                     
                     // If network works, test the completed trips endpoint
                     println("TripDetailsViewModel: Now testing completed trips endpoint...")
-                    val completedResult = repository.getCompletedTrips("Bearer $rawToken")
+                    val completedResult = repository.getCompletedTrips()
                     completedResult.onSuccess { trips ->
                         println("TripDetailsViewModel: SUCCESS - Completed trips API works!")
                         println("TripDetailsViewModel: Found ${trips.size} completed trips")

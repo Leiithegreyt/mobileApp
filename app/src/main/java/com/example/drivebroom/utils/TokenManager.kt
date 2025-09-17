@@ -7,6 +7,13 @@ import androidx.security.crypto.MasterKey
 import android.util.Log
 
 class TokenManager(context: Context) {
+    
+    // Callback for authentication failures
+    private var onAuthFailureCallback: (() -> Unit)? = null
+    
+    fun setOnAuthFailureCallback(callback: () -> Unit) {
+        onAuthFailureCallback = callback
+    }
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -33,6 +40,13 @@ class TokenManager(context: Context) {
     fun clearToken() {
         Log.d("TokenManager", "Clearing token")
         sharedPreferences.edit().remove(KEY_TOKEN).apply()
+        // Trigger auth failure callback if set
+        onAuthFailureCallback?.invoke()
+    }
+    
+    fun isTokenValid(): Boolean {
+        val token = getToken()
+        return !token.isNullOrBlank()
     }
 
     companion object {

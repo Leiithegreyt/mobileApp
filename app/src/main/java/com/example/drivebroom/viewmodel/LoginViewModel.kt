@@ -75,7 +75,24 @@ class LoginViewModel(
                 }
                 .onFailure { error ->
                     Log.e("LoginViewModel", "Login failed", error)
-                    _loginState.value = LoginState.Error(error.message ?: "Login failed")
+                    val errorMessage = when {
+                        error.message?.contains("401", ignoreCase = true) == true -> 
+                            "Wrong email or password. Please check your credentials."
+                        error.message?.contains("403", ignoreCase = true) == true -> 
+                            "Access denied. Please contact your administrator."
+                        error.message?.contains("404", ignoreCase = true) == true -> 
+                            "Server not found. Please check your internet connection."
+                        error.message?.contains("500", ignoreCase = true) == true -> 
+                            "Server error. Please try again later."
+                        error.message?.contains("timeout", ignoreCase = true) == true -> 
+                            "Connection timeout. Please check your internet connection."
+                        error.message?.contains("network", ignoreCase = true) == true -> 
+                            "Network error. Please check your internet connection."
+                        error.message?.contains("Unauthorized", ignoreCase = true) == true -> 
+                            "Wrong email or password. Please check your credentials."
+                        else -> error.message ?: "Login failed. Please try again."
+                    }
+                    _loginState.value = LoginState.Error(errorMessage)
                 }
         }
     }
@@ -83,6 +100,12 @@ class LoginViewModel(
     fun logout() {
         tokenManager.clearToken()
         _loginState.value = LoginState.Initial
+    }
+    
+    fun clearError() {
+        if (_loginState.value is LoginState.Error) {
+            _loginState.value = LoginState.Initial
+        }
     }
 
     private fun isValidEmail(email: String): Boolean {

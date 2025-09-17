@@ -49,11 +49,6 @@ fun TripDetailsScreen(
     val latestTripDetails by viewModel.tripDetails.collectAsState()
     val itinerary by viewModel.itinerary.collectAsState()
 
-    // On first composition, load trip details
-    LaunchedEffect(tripDetails.id) {
-        viewModel.loadTripDetails(tripDetails.id)
-    }
-
     // Use latestTripDetails if available, else fallback to initial tripDetails
     val trip = latestTripDetails ?: tripDetails
 
@@ -61,28 +56,59 @@ fun TripDetailsScreen(
     data class ItineraryLeg(val odometer: Double, val time: String, val destination: String)
     var currentLegOdometer by remember { mutableStateOf("") }
     var currentLegFuelBalance by remember { mutableStateOf("") }
-    var currentLegDestination by remember { mutableStateOf("") }
+    var currentLegDestination by remember { mutableStateOf("Isatu Miagao Campus") }
     var showDepartureDialog by remember { mutableStateOf(false) }
     var showArrivalDialog by remember { mutableStateOf(false) }
     var showNextStopPrompt by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
     var fuelPurchasedInput by remember { mutableStateOf("") }
-    var fuelUsedInput by remember { mutableStateOf("") }
     var fuelBalanceEndInput by remember { mutableStateOf("") }
     var odometerArrivalInput by remember { mutableStateOf("") }
+    var currentArrivalOdometer by remember { mutableStateOf("") }
     var lastFuelBalanceStart by remember { mutableStateOf<Double?>(null) }
     var tripStarted by remember { mutableStateOf(false) }
     var canArrive by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
     var lastOdometerArrival by remember { mutableStateOf<Double?>(null) }
 
-    // Calculate total distance travelled using lastOdometerArrival if available
-    val departureOdometer = itinerary.firstOrNull()?.odometer
-    val totalDistanceTravelled = if (departureOdometer != null && lastOdometerArrival != null && lastOdometerArrival!! >= departureOdometer) {
-        lastOdometerArrival!! - departureOdometer
+    // On first composition, load trip details and clear form fields when trip changes
+    LaunchedEffect(tripDetails.id) {
+        viewModel.loadTripDetails(tripDetails.id)
+        
+        // Clear ViewModel state when trip changes
+        viewModel.clearItinerary()
+        
+        // Clear all form fields when trip changes
+        currentLegOdometer = ""
+        currentLegFuelBalance = ""
+        currentLegDestination = "Isatu Miagao Campus"
+        fuelPurchasedInput = ""
+        fuelBalanceEndInput = ""
+        odometerArrivalInput = ""
+        currentArrivalOdometer = ""
+        lastFuelBalanceStart = null
+        tripStarted = false
+        canArrive = false
+        canReturn = false
+        lastOdometerArrival = null
+        showDepartureDialog = false
+        showArrivalDialog = false
+        showNextStopPrompt = false
+        showReturnDialog = false
+    }
+
+    // Calculate total distance travelled using proper odometer readings
+    val departureOdometer = itinerary.firstOrNull()?.odometerStart
+    val arrivalOdometer = itinerary.lastOrNull()?.odometerEnd
+    val totalDistanceTravelled = if (departureOdometer != null && arrivalOdometer != null && arrivalOdometer >= departureOdometer) {
+        arrivalOdometer - departureOdometer
     } else if (itinerary.size >= 2) {
-        val odometerValues = itinerary.map { it.odometer }
-        odometerValues.last() - odometerValues.first()
+        // Calculate total distance from all legs
+        itinerary.sumOf { leg ->
+            val start = leg.odometerStart
+            val end = leg.odometerEnd ?: start
+            end - start
+        }
     } else 0.0
 
     // Format dates
@@ -171,7 +197,8 @@ fun TripDetailsScreen(
                     Text("Itinerary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                        Text("Odometer", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text("Odometer Start", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                        Text("Odometer End", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                         Text("Time (Dep)", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                         Text("Departure", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
                         Text("Time (Arr)", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
@@ -183,7 +210,8 @@ fun TripDetailsScreen(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(leg.odometer.toString(), modifier = Modifier.weight(1f))
+                                Text(leg.odometerStart.toString(), modifier = Modifier.weight(1f))
+                                Text((leg.odometerEnd ?: leg.odometerStart).toString(), modifier = Modifier.weight(1f))
                                 Text(leg.timeDepartureDisplay ?: "", modifier = Modifier.weight(1f))
                                 Text(leg.departure, modifier = Modifier.weight(1f))
                                 Text(leg.timeArrivalDisplay ?: "", modifier = Modifier.weight(1f))
@@ -202,19 +230,19 @@ fun TripDetailsScreen(
                 ) {
                     Button(
                         onClick = { showDepartureDialog = true },
-                        enabled = !tripStarted || canArrive,
+                        enabled = (!tripStarted || canArrive) && actionState !is TripActionState.Loading,
                         modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
                     ) { Text("Departure", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
                         onClick = { showArrivalDialog = true },
-                        enabled = tripStarted && canArrive,
+                        enabled = (tripStarted && canArrive) && actionState !is TripActionState.Loading,
                         modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
                     ) { Text("Arrival", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
                         onClick = { showReturnDialog = true },
-                        enabled = canReturn,
+                        enabled = canReturn && actionState !is TripActionState.Loading,
                         modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
                     ) { Text("Returned", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
@@ -231,7 +259,7 @@ fun TripDetailsScreen(
                 if (actionState is TripActionState.Success) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Action successful!", color = MaterialTheme.colorScheme.primary)
-                    viewModel.resetActionState()
+                    // Let the success message be visible briefly; reset is done after dialogs close
                 }
             }
         }
@@ -259,7 +287,8 @@ fun TripDetailsScreen(
                     OutlinedTextField(
                         value = currentLegDestination,
                         onValueChange = { currentLegDestination = it },
-                        label = { Text("Departure Location") }
+                        label = { Text("Departure Location") },
+                        placeholder = { Text("Isatu Miagao Campus") }
                     )
                 }
             },
@@ -268,18 +297,31 @@ fun TripDetailsScreen(
                     val odo = currentLegOdometer.toDoubleOrNull()
                     val fuel = currentLegFuelBalance.toDoubleOrNull()
                     val dep = currentLegDestination
-                    if (odo != null && fuel != null && dep.isNotBlank()) {
+                    if (odo != null && fuel != null) {
                         viewModel.logDeparture(trip.id, odo, fuel)
                         lastFuelBalanceStart = fuel
                         tripStarted = true
                         canArrive = true
                         val timeForBackend = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
                         val timeForDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
-                        viewModel.addDepartureLeg(odo, timeForBackend, dep, timeForDisplay)
+                        
+                        // Debug logging
+                        android.util.Log.d("TripDetailsScreen", "=== DEPARTURE DEBUG ===")
+                        android.util.Log.d("TripDetailsScreen", "Adding departure leg with odometer: $odo")
+                        android.util.Log.d("TripDetailsScreen", "Time for backend: $timeForBackend")
+                        android.util.Log.d("TripDetailsScreen", "Departure location: ${if (dep.isNotBlank()) dep else "Isatu Miagao Campus"}")
+                        
+                        viewModel.addDepartureLeg(odo, timeForBackend, if (dep.isNotBlank()) dep else "Isatu Miagao Campus", timeForDisplay)
+                        
+                        // Log the itinerary state after adding
+                        android.util.Log.d("TripDetailsScreen", "Itinerary after adding departure: ${viewModel.itinerary.value}")
                         showDepartureDialog = false
                         currentLegOdometer = ""
                         currentLegFuelBalance = ""
-                        currentLegDestination = ""
+                        currentLegDestination = "Isatu Miagao Campus"
+                    } else {
+                        // Basic feedback
+                        android.widget.Toast.makeText(context, "Enter valid odometer and fuel.", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }) { Text("Submit") }
             },
@@ -291,7 +333,8 @@ fun TripDetailsScreen(
 
     // Arrival dialog
     if (showArrivalDialog) {
-        var arrivalLocation by remember { mutableStateOf("") }
+        // Auto-fill arrival location from trip destination
+        val arrivalLocation = trip.destination ?: ""
         AlertDialog(
             onDismissRequest = { showArrivalDialog = false },
             title = { Text("Arrival Details") },
@@ -299,24 +342,82 @@ fun TripDetailsScreen(
                 Column {
                     OutlinedTextField(
                         value = arrivalLocation,
-                        onValueChange = { arrivalLocation = it },
-                        label = { Text("Arrival Location") }
+                        onValueChange = { }, // Read-only
+                        label = { Text("Arrival Location") },
+                        readOnly = true,
+                        enabled = false
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = currentArrivalOdometer,
+                        onValueChange = { currentArrivalOdometer = it },
+                        label = { Text("Odometer Reading at Arrival") }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Arriving at: $arrivalLocation",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    // Show warning if odometer hasn't increased
+                    val lastDepartureOdometer = itinerary.lastOrNull()?.odometerStart
+                    if (lastDepartureOdometer != null && currentArrivalOdometer.isNotBlank()) {
+                        val arrivalOdometer = currentArrivalOdometer.toDoubleOrNull()
+                        if (arrivalOdometer != null) {
+                            if (arrivalOdometer <= lastDepartureOdometer) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "⚠️ Warning: Arrival odometer should be higher than departure odometer (${lastDepartureOdometer})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                val distance = arrivalOdometer - lastDepartureOdometer
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "✅ Distance: ${String.format("%.2f", distance)} km",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val arr = arrivalLocation
-                    if (arr.isNotBlank()) {
+                    val odometerEnd = currentArrivalOdometer.toDoubleOrNull()
+                    val lastDepartureOdometer = itinerary.lastOrNull()?.odometerStart
+                    
+                    if (arrivalLocation.isNotBlank() && odometerEnd != null) {
+                        // Check if arrival odometer is higher than departure
+                        if (lastDepartureOdometer != null && odometerEnd <= lastDepartureOdometer) {
+                            android.widget.Toast.makeText(
+                                context, 
+                                "Arrival odometer (${odometerEnd}) must be higher than departure odometer (${lastDepartureOdometer})", 
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            return@TextButton
+                        }
+                        
                         val timeForBackend = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
                         val timeForDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
-                        viewModel.addArrivalToLastLeg(timeForBackend, arr, timeForDisplay)
+                        viewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
+                        // Also notify backend about arrival (uses default 0.0 if not provided)
+                        viewModel.logArrival(trip.id)
                         showArrivalDialog = false
                         showNextStopPrompt = true
-                        arrivalLocation = ""
                         canArrive = false
+                        currentArrivalOdometer = "" // Clear the input
+                    } else {
+                        val msg = when {
+                            arrivalLocation.isBlank() -> "No destination set for this trip."
+                            odometerEnd == null -> "Enter valid odometer reading at arrival."
+                            else -> "Invalid arrival details."
+                        }
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                     }
-                }) { Text("Submit") }
+                }) { Text("Confirm Arrival") }
             },
             dismissButton = {
                 TextButton(onClick = { showArrivalDialog = false }) { Text("Cancel") }
@@ -349,11 +450,11 @@ fun TripDetailsScreen(
     // For return dialog, collect signatures for each passenger (now removed, just show details)
 
     if (showReturnDialog) {
-        // Calculate fuel balance end automatically
-        val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
-        val fuelUsed = fuelUsedInput.toDoubleOrNull() ?: 0.0
+        // Calculate fuel used automatically from the difference
+        val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0 // Default to 0 if no fuel purchased
+        val fuelBalanceEnd = fuelBalanceEndInput.toDoubleOrNull() ?: 0.0
         val initialBalance = lastFuelBalanceStart ?: 0.0
-        val calculatedFuelBalanceEnd = initialBalance + fuelPurchased - fuelUsed
+        val calculatedFuelUsed = initialBalance + fuelPurchased - fuelBalanceEnd
         AlertDialog(
             onDismissRequest = { showReturnDialog = false },
             title = { Text("Trip Return Details") },
@@ -362,28 +463,36 @@ fun TripDetailsScreen(
                     OutlinedTextField(
                         value = fuelPurchasedInput,
                         onValueChange = { fuelPurchasedInput = it },
-                        label = { Text("Fuel Purchased (L)") }
+                        label = { Text("Fuel Purchased (L)") },
+                        placeholder = { Text("Enter 0 or leave empty if no fuel purchased") }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = fuelUsedInput,
-                        onValueChange = { fuelUsedInput = it },
-                        label = { Text("Fuel Used (L)") }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = if (fuelPurchasedInput.isNotBlank() || fuelUsedInput.isNotBlank()) String.format("%.2f", calculatedFuelBalanceEnd) else "",
-                        onValueChange = {},
-                        label = { Text("Fuel Balance End (L)") },
-                        readOnly = true,
-                        enabled = false
+                        value = fuelBalanceEndInput,
+                        onValueChange = { fuelBalanceEndInput = it },
+                        label = { Text("Fuel Balance End (L)") }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = odometerArrivalInput,
                         onValueChange = { odometerArrivalInput = it },
-                        label = { Text("Odometer Arrival") }
+                        label = { Text("Final Odometer Reading") }
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Show calculated fuel used for reference
+                    if (fuelBalanceEndInput.isNotBlank()) {
+                        val fuelUsedText = if (fuelPurchasedInput.isNotBlank()) {
+                            "Fuel Used: ${String.format("%.2f", calculatedFuelUsed)} L"
+                        } else {
+                            "Fuel Used: ${String.format("%.2f", calculatedFuelUsed)} L (No fuel purchased)"
+                        }
+                        Text(
+                            text = fuelUsedText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Passenger Details", fontWeight = FontWeight.Bold)
                     Column {
@@ -417,50 +526,81 @@ fun TripDetailsScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val fuelPurchased = fuelPurchasedInput.toDoubleOrNull()
-                    val fuelUsed = fuelUsedInput.toDoubleOrNull()
-                    val fuelBalanceEnd = calculatedFuelBalanceEnd
+                    val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0 // Default to 0 if empty
+                    val fuelBalanceEnd = fuelBalanceEndInput.toDoubleOrNull()
                     val odometerArrival = odometerArrivalInput.toDoubleOrNull()
                     if (
-                        fuelPurchased != null &&
-                        fuelUsed != null &&
+                        fuelBalanceEnd != null &&
                         odometerArrival != null &&
-                        passengersList.isNotEmpty() &&
                         lastFuelBalanceStart != null
                     ) {
-                        lastOdometerArrival = odometerArrival
-                        val passengerDetailsToSend = passengersList.map { name ->
-                            com.example.drivebroom.network.PassengerDetail(
-                                name = name,
-                                destination = "",
-                                signature = ""
+                        val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
+                            passengersList.map { name ->
+                                com.example.drivebroom.network.PassengerDetail(
+                                    name = name,
+                                    destination = trip.destination,
+                                    signature = ""
+                                )
+                            }
+                        } else {
+                            listOf(
+                                com.example.drivebroom.network.PassengerDetail(
+                                    name = trip.passenger_email,
+                                    destination = trip.destination,
+                                    signature = ""
+                                )
                             )
                         }
-                        val itineraryDto = itinerary.map {
-                            com.example.drivebroom.network.ItineraryLegDto(
-                                odometer = it.odometer,
-                                time_departure = it.timeDeparture,
-                                departure = it.departure,
-                                time_arrival = it.timeArrival,
-                                arrival = it.arrival
+                        // Create single leg with all three odometer readings
+                        val firstLeg = itinerary.firstOrNull()
+                        val arrivalLeg = itinerary.firstOrNull { leg -> leg.odometerEnd != null }
+                        
+                        // Debug logging
+                        android.util.Log.d("TripDetailsScreen", "=== RETURN DEBUG ===")
+                        android.util.Log.d("TripDetailsScreen", "Itinerary size: ${itinerary.size}")
+                        android.util.Log.d("TripDetailsScreen", "First leg: $firstLeg")
+                        android.util.Log.d("TripDetailsScreen", "Arrival leg: $arrivalLeg")
+                        android.util.Log.d("TripDetailsScreen", "Odometer arrival input: $odometerArrival")
+                        if (firstLeg != null) {
+                            android.util.Log.d("TripDetailsScreen", "First leg odometerStart: ${firstLeg.odometerStart}")
+                        }
+                        
+                        val finalItinerary = if (firstLeg != null && odometerArrival != null) {
+                            // Single leg with start, arrival, and return odometer readings
+                            val legDto = com.example.drivebroom.network.ItineraryLegDto(
+                                odometer_start = firstLeg.odometerStart,     // Start odometer (departure from campus)
+                                odometer = odometerArrival!!,               // Return odometer (back to campus)
+                                odometer_arrival = arrivalLeg?.odometerEnd,  // Arrival odometer (at destination) - NEW FIELD
+                                time_departure = firstLeg.timeDeparture,
+                                departure = firstLeg.departure,             // "Isatu Miagao Campus"
+                                time_arrival = arrivalLeg?.timeArrival ?: LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
+                                arrival = arrivalLeg?.arrival ?: "Isatu Miagao Campus"
                             )
+                            android.util.Log.d("TripDetailsScreen", "Created leg DTO: $legDto")
+                            listOf(legDto)
+                        } else {
+                            android.util.Log.d("TripDetailsScreen", "Creating empty itinerary - firstLeg: $firstLeg, odometerArrival: $odometerArrival")
+                            // Fallback if no departure leg recorded
+                            emptyList()
                         }
                         viewModel.logReturn(
                             trip.id,
                             lastFuelBalanceStart!!,
                             fuelPurchased,
-                            fuelUsed,
                             fuelBalanceEnd,
                             passengerDetailsToSend,
-                            "",
-                            odometerArrival,
-                            itineraryDto
+                            finalItinerary
                         )
                         showReturnDialog = false
                         fuelPurchasedInput = ""
-                        fuelUsedInput = ""
                         fuelBalanceEndInput = ""
                         odometerArrivalInput = ""
+                    } else {
+                        val msg = when {
+                            fuelBalanceEnd == null || odometerArrival == null || lastFuelBalanceStart == null -> "Enter fuel balance end and final odometer reading to complete return."
+                            else -> "Invalid return details."
+                        }
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }) { Text("Submit") }
             },
