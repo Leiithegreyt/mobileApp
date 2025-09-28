@@ -22,6 +22,7 @@ import com.example.drivebroom.viewmodel.TripDetailsViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import com.example.drivebroom.ui.components.StatusChip
+import com.example.drivebroom.ui.screens.SharedTripDetailsViewScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +38,7 @@ fun DriverHomeScreen(
     var showNextSchedule by remember { mutableStateOf(false) }
     var showCompletedTrips by remember { mutableStateOf(false) }
     var selectedCompletedTrip by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
+    var showSharedTripDetails by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     val context = LocalContext.current
     val viewModel: TripDetailsViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
@@ -164,15 +166,26 @@ fun DriverHomeScreen(
             ) {
                 CircularProgressIndicator()
             }
+        } else if (showSharedTripDetails != null) {
+            // Shared Trip Details View Screen
+            SharedTripDetailsViewScreen(
+                trip = showSharedTripDetails!!,
+                onBack = { showSharedTripDetails = null }
+            )
         } else if (selectedCompletedTrip != null) {
             // Completed Trip Details Screen
             CompletedTripDetailsScreen(
                 trip = selectedCompletedTrip!!,
                 onBack = { selectedCompletedTrip = null },
                 onViewSharedTripDetails = { tripId ->
-                    // Navigate to shared trip details if needed
-                    // For now, just show a message
+                    // Navigate to shared trip details
                     android.util.Log.d("DriverHomeScreen", "View shared trip details for trip ID: $tripId")
+                    // Find the completed trip with this ID and show shared trip details
+                    val sharedTrip = completedTrips.find { it.id == tripId }
+                    if (sharedTrip != null) {
+                        showSharedTripDetails = sharedTrip
+                        selectedCompletedTrip = null // Hide the completed trip details
+                    }
                 }
             )
         } else if (showCompletedTrips) {
