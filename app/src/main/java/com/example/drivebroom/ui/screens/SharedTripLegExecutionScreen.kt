@@ -50,6 +50,7 @@ fun SharedTripLegExecutionScreen(
     var showArrivalDialog by remember { mutableStateOf(false) }
     var showNextLegPrompt by remember { mutableStateOf(false) }
     var legCompleted by remember { mutableStateOf(false) }
+    var showTripCompletedDialog by remember { mutableStateOf(false) }
 
     // Debug when the composable receives new parameters
     LaunchedEffect(currentLeg?.leg_id, currentLegIndex) {
@@ -475,6 +476,8 @@ fun SharedTripLegExecutionScreen(
                     android.util.Log.d("SharedTripLegExecutionScreen", "Arrive enabled: ${currentLeg?.status == "in_progress" && actionState !is TripActionState.Loading}")
                     android.util.Log.d("SharedTripLegExecutionScreen", "Next Leg enabled: ${legCompleted && actionState !is TripActionState.Loading}")
                     android.util.Log.d("SharedTripLegExecutionScreen", "legCompleted state: $legCompleted")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "isLastLeg: $isLastLeg")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Will show: ${if (isLastLeg) "Complete Trip" else "Next Leg"} button")
                     
                     // Track status changes
                     if (currentLeg?.status == "completed") {
@@ -504,15 +507,35 @@ fun SharedTripLegExecutionScreen(
                         Text("Arrive")
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = { 
-                            onNextLeg()
-                            legCompleted = false // Reset for next leg
-                        },
-                        enabled = legCompleted && actionState !is TripActionState.Loading,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Next Leg")
+                    // Only show Next Leg button if not the last leg
+                    if (!isLastLeg) {
+                        OutlinedButton(
+                            onClick = { 
+                                android.util.Log.d("SharedTripLegExecutionScreen", "=== NEXT LEG BUTTON CLICKED ===")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "Total legs: $totalLegs")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "Is last leg: $isLastLeg")
+                                onNextLeg()
+                                legCompleted = false // Reset for next leg
+                            },
+                            enabled = legCompleted && actionState !is TripActionState.Loading,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Next Leg")
+                        }
+                    } else {
+                        // Show "Complete Trip" button for last leg
+                        OutlinedButton(
+                            onClick = { 
+                                android.util.Log.d("SharedTripLegExecutionScreen", "=== COMPLETE TRIP BUTTON CLICKED ===")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "This is the last leg, completing trip")
+                                showTripCompletedDialog = true
+                            },
+                            enabled = legCompleted && actionState !is TripActionState.Loading,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Complete Trip")
+                        }
                     }
                 }
             }
@@ -821,6 +844,60 @@ fun SharedTripLegExecutionScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showNextLegPrompt = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Trip Completed Congratulations Dialog
+    if (showTripCompletedDialog) {
+        AlertDialog(
+            onDismissRequest = { showTripCompletedDialog = false },
+            title = { 
+                Text(
+                    text = "🎉 Congratulations!",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = { 
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Trip Successfully Completed!",
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Text(
+                        text = "All legs have been completed successfully. Proceeding to trip summary...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showTripCompletedDialog = false
+                        onTripComplete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text("View Summary")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showTripCompletedDialog = false },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
                     Text("Cancel")
                 }
             }

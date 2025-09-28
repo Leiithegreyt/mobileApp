@@ -195,7 +195,23 @@ fun SharedTripFlowScreen(
                             viewModel.completeLeg(tripDetails.id, legId, odometerEnd, fuelEnd, fuelPurchased, notes)
                         },
                         onNextLeg = {
-                            // Move to next leg (handled by ViewModel)
+                            android.util.Log.d("SharedTripFlowScreen", "=== NEXT LEG CALLBACK ===")
+                            android.util.Log.d("SharedTripFlowScreen", "Current leg index: $currentLegIndex")
+                            android.util.Log.d("SharedTripFlowScreen", "Total legs: ${sharedTripLegs.size}")
+                            
+                            if (currentLegIndex < sharedTripLegs.size - 1) {
+                                val nextIndex = currentLegIndex + 1
+                                android.util.Log.d("SharedTripFlowScreen", "Moving to next leg index: $nextIndex")
+                                viewModel.setCurrentLegIndex(nextIndex)
+                                
+                                // Update selected leg to the next one
+                                if (nextIndex < sharedTripLegs.size) {
+                                    selectedLeg = sharedTripLegs[nextIndex]
+                                    android.util.Log.d("SharedTripFlowScreen", "Updated selectedLeg to: ${selectedLeg?.leg_id}")
+                                }
+                            } else {
+                                android.util.Log.d("SharedTripFlowScreen", "⚠️ Already at last leg, cannot move to next")
+                            }
                         },
                         onTripComplete = {
                             showSummary = true

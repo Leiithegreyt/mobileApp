@@ -36,6 +36,7 @@ fun DriverHomeScreen(
     var showProfile by remember { mutableStateOf(false) }
     var showNextSchedule by remember { mutableStateOf(false) }
     var showCompletedTrips by remember { mutableStateOf(false) }
+    var selectedCompletedTrip by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     val context = LocalContext.current
     val viewModel: TripDetailsViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
@@ -163,11 +164,25 @@ fun DriverHomeScreen(
             ) {
                 CircularProgressIndicator()
             }
+        } else if (selectedCompletedTrip != null) {
+            // Completed Trip Details Screen
+            CompletedTripDetailsScreen(
+                trip = selectedCompletedTrip!!,
+                onBack = { selectedCompletedTrip = null },
+                onViewSharedTripDetails = { tripId ->
+                    // Navigate to shared trip details if needed
+                    // For now, just show a message
+                    android.util.Log.d("DriverHomeScreen", "View shared trip details for trip ID: $tripId")
+                }
+            )
         } else if (showCompletedTrips) {
             // Trip Log Screen
             TripLogScreen(
                 completedTrips = completedTrips,
-                onBack = { showCompletedTrips = false }
+                onBack = { showCompletedTrips = false },
+                onTripClick = { trip ->
+                    selectedCompletedTrip = trip
+                }
             )
         } else {
             LazyColumn(

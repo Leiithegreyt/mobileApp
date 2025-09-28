@@ -71,7 +71,7 @@ interface ApiService {
 
     // Finalize full shared trip
     @POST("shared-trips/{tripId}/submit")
-    suspend fun submitSharedTrip(@Path("tripId") tripId: Int): retrofit2.Response<Unit>
+    suspend fun submitSharedTrip(@Path("tripId") tripId: Int, @Body request: TripSubmissionRequest): retrofit2.Response<Unit>
 }
 
 data class LoginRequest(
@@ -137,7 +137,8 @@ data class TripDetailsResponse(
 
 data class CompletedTrip(
     @SerializedName("id") val id: Int,
-    @SerializedName("driver_id") val driverId: Int,
+    @SerializedName("trip_type") val tripType: String?, // "individual" or "shared"
+    @SerializedName("driver_id") val driverId: Int?,
     @SerializedName("status") val status: String?,
     @SerializedName("destination") val destination: String?,
     @SerializedName("requested_by") val requestedBy: String?,
@@ -147,7 +148,11 @@ data class CompletedTrip(
     @SerializedName("travel_date") val travelDate: String?,
     @SerializedName("travel_time") val travelTime: String?,
     @SerializedName("purpose") val purpose: String?,
-    @SerializedName("passengers") val passengers: String?
+    @SerializedName("passengers") val passengers: String?,
+    // Shared trip specific fields
+    @SerializedName("total_passengers") val totalPassengers: Int?,
+    @SerializedName("stops") val stops: List<TripStop>?,
+    @SerializedName("legs") val legs: List<SharedTripLeg>?
 )
 
 data class Vehicle(
@@ -204,6 +209,8 @@ data class PassengerDetail(
 data class CompletedTripsResponse(
     @SerializedName("trips") val trips: List<CompletedTrip>,
     @SerializedName("count") val count: Int?,
+    @SerializedName("individual_count") val individualCount: Int?,
+    @SerializedName("shared_count") val sharedCount: Int?,
     @SerializedName("message") val message: String? = null
 )
 
@@ -273,5 +280,14 @@ data class LegCompletionRequest(
     @SerializedName("distance_travelled") val distance_travelled: Double,
     @SerializedName("fuel_used") val fuel_used: Double,
     @SerializedName("fuel_purchased") val fuel_purchased: Double?,
+    @SerializedName("notes") val notes: String?
+)
+
+data class TripSubmissionRequest(
+    @SerializedName("final_odometer") val final_odometer: Double,
+    @SerializedName("final_fuel") val final_fuel: Double,
+    @SerializedName("total_distance") val total_distance: Double,
+    @SerializedName("total_fuel_used") val total_fuel_used: Double,
+    @SerializedName("total_fuel_purchased") val total_fuel_purchased: Double?,
     @SerializedName("notes") val notes: String?
 ) 

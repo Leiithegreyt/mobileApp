@@ -5,6 +5,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,8 +22,31 @@ import java.util.*
 @Composable
 fun TripLogScreen(
     completedTrips: List<CompletedTrip>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onTripClick: (CompletedTrip) -> Unit = {}
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    var selectedTripType by remember { mutableStateOf("All") }
+    
+    // Filter trips based on search query and trip type
+    val filteredTrips = remember(completedTrips, searchQuery, selectedTripType) {
+        completedTrips.filter { trip ->
+            val matchesSearch = searchQuery.isEmpty() || 
+                trip.destination?.contains(searchQuery, ignoreCase = true) == true ||
+                trip.requestedBy?.contains(searchQuery, ignoreCase = true) == true ||
+                trip.id.toString().contains(searchQuery)
+            
+            val matchesType = when (selectedTripType) {
+                "All" -> true
+                "Shared" -> trip.tripType == "shared"
+                "Individual" -> trip.tripType == "individual"
+                else -> true
+            }
+            
+            matchesSearch && matchesType
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -69,15 +94,81 @@ fun TripLogScreen(
                 }
             }
             item {
-                Text(
-                    text = "Completed Trips",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+                Column {
+                    Text(
+                        text = "Completed Trips (${filteredTrips.size})",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    // Trip type statistics
+                    val sharedCount = completedTrips.count { it.tripType == "shared" }
+                    val individualCount = completedTrips.count { it.tripType == "individual" }
+                    
+                    if (completedTrips.isNotEmpty()) {
+                        Text(
+                            text = "📊 ${sharedCount} shared trips • ${individualCount} individual trips",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                    }
+                }
             }
             
-            if (completedTrips.isEmpty()) {
+            // Search and Filter Bar
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search trips...") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    
+                    OutlinedButton(
+                        onClick = { showFilterDialog = true }
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Filter")
+                    }
+                }
+            }
+            
+            // Filter chips
+            if (selectedTripType != "All") {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            onClick = { selectedTripType = "All" },
+                            label = { Text("All") },
+                            selected = selectedTripType == "All"
+                        )
+                        FilterChip(
+                            onClick = { selectedTripType = "Shared" },
+                            label = { Text("Shared") },
+                            selected = selectedTripType == "Shared"
+                        )
+                        FilterChip(
+                            onClick = { selectedTripType = "Individual" },
+                            label = { Text("Individual") },
+                            selected = selectedTripType == "Individual"
+                        )
+                    }
+                }
+            }
+            
+            if (filteredTrips.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -94,12 +185,12 @@ fun TripLogScreen(
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "No completed trips yet",
+                                text = if (completedTrips.isEmpty()) "No completed trips yet" else "No trips match your search",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Your completed trips will appear here",
+                                text = if (completedTrips.isEmpty()) "Your completed trips will appear here" else "Try adjusting your search or filter",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -107,35 +198,114 @@ fun TripLogScreen(
                     }
                 }
             } else {
-                items(completedTrips) { trip ->
-                    CompletedTripCard(trip = trip)
+                items(filteredTrips) { trip ->
+                    CompletedTripCard(
+                        trip = trip,
+                        onClick = { onTripClick(trip) }
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
+        }
+        
+        // Filter Dialog
+        if (showFilterDialog) {
+            AlertDialog(
+                onDismissRequest = { showFilterDialog = false },
+                title = { Text("Filter Trips") },
+                text = {
+                    Column {
+                        Text(
+                            text = "Trip Type",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                onClick = { selectedTripType = "All" },
+                                label = { Text("All") },
+                                selected = selectedTripType == "All",
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                onClick = { selectedTripType = "Shared" },
+                                label = { Text("Shared") },
+                                selected = selectedTripType == "Shared",
+                                modifier = Modifier.weight(1f)
+                            )
+                        FilterChip(
+                            onClick = { selectedTripType = "Individual" },
+                            label = { Text("Individual") },
+                            selected = selectedTripType == "Individual",
+                            modifier = Modifier.weight(1f)
+                        )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showFilterDialog = false }) {
+                        Text("Apply")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { 
+                        selectedTripType = "All"
+                        showFilterDialog = false 
+                    }) {
+                        Text("Clear")
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
-fun CompletedTripCard(trip: CompletedTrip) {
+fun CompletedTripCard(
+    trip: CompletedTrip,
+    onClick: () -> Unit = {}
+) {
     Card(
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(4.dp)
+        elevation = CardDefaults.cardElevation(4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
-            // Trip ID and Status
+            // Trip ID, Type, and Status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Trip #${trip.id}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Column {
+                    Text(
+                        text = "Trip #${trip.id}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    // Use trip type from API response
+                    val tripType = when (trip.tripType) {
+                        "shared" -> "🔄 Shared Trip"
+                        "individual" -> "🚗 Individual Trip"
+                        else -> "🚗 Trip"
+                    }
+                    Text(
+                        text = tripType,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 StatusChip(status = trip.status ?: "Unknown")
             }
             
@@ -170,9 +340,45 @@ fun CompletedTripCard(trip: CompletedTrip) {
             trip.vehicleInfo?.let { vehicle ->
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Vehicle: ${vehicle.plateNumber} (${vehicle.model})",
+                    text = "🚗 Vehicle: ${vehicle.plateNumber} (${vehicle.model})",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            // Purpose if available
+            trip.purpose?.let { purpose ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "📝 Purpose: $purpose",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            // Passengers if available
+            trip.passengers?.let { passengers ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "👥 Passengers: $passengers",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // View Details indicator
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tap to view details →",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }

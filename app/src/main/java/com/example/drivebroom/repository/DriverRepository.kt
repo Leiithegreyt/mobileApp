@@ -314,17 +314,25 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
-    suspend fun submitSharedTrip(tripId: Int): Result<Unit> {
+    suspend fun submitSharedTrip(tripId: Int, request: com.example.drivebroom.network.TripSubmissionRequest): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.submitSharedTrip(tripId)
+                android.util.Log.d("DriverRepository", "=== SUBMIT SHARED TRIP ===")
+                android.util.Log.d("DriverRepository", "Trip ID: $tripId")
+                android.util.Log.d("DriverRepository", "Request data: final_odometer=${request.final_odometer}, final_fuel=${request.final_fuel}")
+                android.util.Log.d("DriverRepository", "Total distance: ${request.total_distance}, Total fuel used: ${request.total_fuel_used}")
+                
+                val response = apiService.submitSharedTrip(tripId, request)
                 if (response.isSuccessful) {
+                    android.util.Log.d("DriverRepository", "Trip submitted successfully")
                     Result.success(Unit)
                 } else {
                     val errorBody = response.errorBody()?.string()
+                    android.util.Log.e("DriverRepository", "Submit shared trip failed: ${response.code()} - $errorBody")
                     Result.failure(Exception("Submit shared trip failed: ${response.code()} - $errorBody"))
                 }
             } catch (e: Exception) {
+                android.util.Log.e("DriverRepository", "Submit shared trip exception: ${e.message}")
                 Result.failure(e)
             }
         }

@@ -643,15 +643,53 @@ class TripDetailsViewModel(
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             try {
-                val result = repository.submitSharedTrip(tripId)
+                android.util.Log.d("TripDetailsViewModel", "=== SUBMIT FULL SHARED TRIP ===")
+                android.util.Log.d("TripDetailsViewModel", "Trip ID: $tripId")
+                
+                val legs = _sharedTripLegs.value
+                if (legs.isEmpty()) {
+                    android.util.Log.e("TripDetailsViewModel", "No legs available for trip submission")
+                    _actionState.value = TripActionState.Error("No legs available for trip submission")
+                    return@launch
+                }
+                
+                // Get the last leg's final values
+                val lastLeg = legs.lastOrNull()
+                val finalOdometer = lastLeg?.odometer_end ?: 0.0
+                val finalFuel = lastLeg?.fuel_end ?: 0.0
+                
+                // Calculate totals
+                val totalDistance = legs.sumOf { (it.odometer_end ?: 0.0) - (it.odometer_start ?: 0.0) }
+                val totalFuelUsed = legs.sumOf { it.fuel_used ?: 0.0 }
+                val totalFuelPurchased = legs.sumOf { it.fuel_purchased ?: 0.0 }
+                
+                android.util.Log.d("TripDetailsViewModel", "Final odometer: $finalOdometer, Final fuel: $finalFuel")
+                android.util.Log.d("TripDetailsViewModel", "Total distance: $totalDistance, Total fuel used: $totalFuelUsed")
+                android.util.Log.d("TripDetailsViewModel", "Total fuel purchased: $totalFuelPurchased")
+                
+                val request = com.example.drivebroom.network.TripSubmissionRequest(
+                    final_odometer = finalOdometer,
+                    final_fuel = finalFuel,
+                    total_distance = totalDistance,
+                    total_fuel_used = totalFuelUsed,
+                    total_fuel_purchased = if (totalFuelPurchased > 0) totalFuelPurchased else null,
+                    notes = lastLeg?.notes
+                )
+                
+                val result = repository.submitSharedTrip(tripId, request)
                 _actionState.value = result.fold(
                     onSuccess = {
+                        android.util.Log.d("TripDetailsViewModel", "Trip submitted successfully")
                         onComplete?.invoke()
                         TripActionState.Success
                     },
-                    onFailure = { TripActionState.Error(it.message ?: "Submit full trip failed") }
+                    onFailure = { 
+                        android.util.Log.e("TripDetailsViewModel", "Trip submission failed: ${it.message}")
+                        TripActionState.Error(it.message ?: "Submit full trip failed") 
+                    }
                 )
             } catch (e: Exception) {
+                android.util.Log.e("TripDetailsViewModel", "Trip submission exception: ${e.message}")
                 _actionState.value = TripActionState.Error(e.message ?: "Submit full trip failed")
             }
         }
