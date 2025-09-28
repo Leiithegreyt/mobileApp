@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -23,6 +24,7 @@ import com.example.drivebroom.repository.DriverRepository
 import com.example.drivebroom.ui.screens.DriverHomeScreen
 import com.example.drivebroom.ui.screens.LoginScreen
 import com.example.drivebroom.ui.screens.TripDetailsScreen
+import com.example.drivebroom.ui.screens.SharedTripFlowScreen
 import com.example.drivebroom.network.TripDetails
 import com.example.drivebroom.ui.theme.DriveBroomTheme
 import com.example.drivebroom.utils.TokenManager
@@ -71,6 +73,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val navigationViewModel: NavigationViewModel = viewModel()
     // Set pendingTripId if tripIdFromIntent is not null
     LaunchedEffect(tripIdFromIntent) {
@@ -132,23 +135,9 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                             trips = emptyList(),
                             onTripClick = { tripId ->
                                 selectedTripId.value = tripId
-                                tripDetailsLoading.value = true
+                                tripDetailsLoading.value = false
                                 tripDetailsError.value = null
-                                coroutineScope.launch {
-                                    try {
-                                        val result = repository.getTripDetails(tripId)
-                                        result.onSuccess { details ->
-                                            tripDetailsState.value = details
-                                            tripDetailsLoading.value = false
-                                        }.onFailure { e ->
-                                            tripDetailsError.value = e.message ?: "Failed to load trip details"
-                                            tripDetailsLoading.value = false
-                                        }
-                                    } catch (e: Exception) {
-                                        tripDetailsError.value = e.message ?: "Failed to load trip details"
-                                        tripDetailsLoading.value = false
-                                    }
-                                }
+                                // No need to load trip details here - the ViewModel will handle it
                             },
                             isLoading = true,
                             onRefresh = { driverHomeViewModel.loadData() }
@@ -165,23 +154,9 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                             trips = state.trips,
                             onTripClick = { tripId ->
                                 selectedTripId.value = tripId
-                                tripDetailsLoading.value = true
+                                tripDetailsLoading.value = false
                                 tripDetailsError.value = null
-                                coroutineScope.launch {
-                                    try {
-                                        val result = repository.getTripDetails(tripId)
-                                        result.onSuccess { details ->
-                                            tripDetailsState.value = details
-                                            tripDetailsLoading.value = false
-                                        }.onFailure { e ->
-                                            tripDetailsError.value = e.message ?: "Failed to load trip details"
-                                            tripDetailsLoading.value = false
-                                        }
-                                    } catch (e: Exception) {
-                                        tripDetailsError.value = e.message ?: "Failed to load trip details"
-                                        tripDetailsLoading.value = false
-                                    }
-                                }
+                                // No need to load trip details here - the ViewModel will handle it
                             },
                             isLoading = false,
                             onRefresh = { driverHomeViewModel.loadData() }
@@ -221,15 +196,87 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                             )
                         }
                     }
-                    tripDetailsState.value != null -> {
-                        TripDetailsScreen(
-                            tripDetails = tripDetailsState.value!!,
-                            onBack = {
-                                selectedTripId.value = null
-                                tripDetailsState.value = null
-                                tripDetailsError.value = null
+                    selectedTripId.value != null -> {
+                        // Create ViewModel for both shared and regular trips
+                        val tripDetailsViewModel: com.example.drivebroom.viewmodel.TripDetailsViewModel = viewModel(
+                            key = "trip_details_${selectedTripId.value}",
+                            factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                    val tokenManager = TokenManager(context)
+                                    val networkClient = NetworkClient(tokenManager)
+                                    val repo = DriverRepository(networkClient.apiService)
+                                    @Suppress("UNCHECKED_CAST")
+                                    return com.example.drivebroom.viewmodel.TripDetailsViewModel(repo, tokenManager, context) as T
+                                }
                             }
                         )
+                        
+                        // Load trip details into the ViewModel
+                        LaunchedEffect(selectedTripId.value) {
+                            selectedTripId.value?.let { tripId ->
+                                android.util.Log.d("MainActivity", "Loading trip details for tripId: $tripId")
+                                tripDetailsViewModel.resetState()
+                                tripDetailsViewModel.loadTripDetails(tripId)
+                            }
+                        }
+                        
+                        // Use ViewModel's state instead of MainActivity's state
+                        val viewModelTripDetails by tripDetailsViewModel.tripDetails.collectAsState()
+                        val isLoading by tripDetailsViewModel.isLoading.collectAsState()
+                        
+                        // Store in local variable to enable smart cast
+                        val currentTripDetails = viewModelTripDetails
+                        
+                        // Debug logging
+                        android.util.Log.d("MainActivity", "=== UI STATE DEBUG ===")
+                        android.util.Log.d("MainActivity", "selectedTripId: ${selectedTripId.value}")
+                        android.util.Log.d("MainActivity", "isLoading: $isLoading")
+                        android.util.Log.d("MainActivity", "currentTripDetails: ${currentTripDetails?.id}, destination: ${currentTripDetails?.destination}")
+                        
+                        when {
+                            isLoading -> {
+                                // Show loading while ViewModel loads the trip details
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                }
+                            }
+                            currentTripDetails != null -> {
+                                if (currentTripDetails.trip_type == "shared") {
+                                    SharedTripFlowScreen(
+                                        tripDetails = currentTripDetails,
+                                        onBack = {
+                                            selectedTripId.value = null
+                                            tripDetailsError.value = null
+                                        },
+                                        viewModel = tripDetailsViewModel
+                                    )
+                                } else {
+                                    TripDetailsScreen(
+                                        tripDetails = currentTripDetails,
+                                        onBack = {
+                                            selectedTripId.value = null
+                                            tripDetailsError.value = null
+                                        },
+                                        onSharedTripClick = { trip ->
+                                            // This won't be called for single trips
+                                        },
+                                        viewModel = tripDetailsViewModel
+                                    )
+                                }
+                            }
+                            else -> {
+                                // Show error or empty state
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    androidx.compose.material3.Text("Failed to load trip details")
+                                }
+                            }
+                        }
                     }
                 }
             }

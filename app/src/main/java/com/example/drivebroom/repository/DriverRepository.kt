@@ -10,6 +10,11 @@ import com.example.drivebroom.network.ReturnBody
 import com.example.drivebroom.network.TripDetails
 import com.example.drivebroom.network.CompletedTrip
 import com.example.drivebroom.network.DriverProfile
+import com.example.drivebroom.network.SharedTripLeg
+import com.example.drivebroom.network.LegDepartureRequest
+import com.example.drivebroom.network.LegArrivalRequest
+import com.example.drivebroom.network.LegCompletionRequest
+import retrofit2.Response
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.google.gson.Gson
@@ -20,7 +25,25 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun loginDriver(email: String, password: String): Result<LoginResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.loginDriver(LoginRequest(email, password))
+                val json = apiService.loginDriver(LoginRequest(email, password))
+                // Accept both wrapped and direct login responses
+                val gson = Gson()
+                val response: LoginResponse = if (json.isJsonObject) {
+                    // Could be { access_token, user } or { data: { access_token, user } }
+                    val obj = json.asJsonObject
+                    if (obj.has("access_token") || obj.has("user")) {
+                        gson.fromJson(obj, LoginResponse::class.java)
+                    } else if (obj.has("data")) {
+                        gson.fromJson(obj.get("data"), LoginResponse::class.java)
+                    } else {
+                        // Fallback attempt
+                        gson.fromJson(obj, LoginResponse::class.java)
+                    }
+                } else {
+                    // If backend ever returns a string token, treat as token only
+                    val token = json.asString
+                    LoginResponse(access_token = token, user = null)
+                }
                 if (response.access_token != null) {
                     Result.success(response)
                 } else {
@@ -91,10 +114,51 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun getTripDetails(tripId: Int): Result<TripDetails> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = apiService.getTripDetails(tripId)
-                Result.success(response)
+                val json = apiService.getTripDetails(tripId)
+                Log.d("DriverRepository", "Raw trip details JSON: $json")
+                
+                val gson = Gson()
+                val tripDetails: TripDetails = if (json.isJsonObject) {
+                    val obj = json.asJsonObject
+                    Log.d("DriverRepository", "Trip details object keys: ${obj.keySet()}")
+                    
+                    when {
+                        obj.has("trip") -> {
+                            Log.d("DriverRepository", "Found 'trip' key, parsing nested object")
+                            val tripObj = obj.get("trip").asJsonObject
+                            Log.d("DriverRepository", "Trip object keys: ${tripObj.keySet()}")
+                            Log.d("DriverRepository", "Trip purpose: ${tripObj.get("purpose")}")
+                            Log.d("DriverRepository", "Trip passengers: ${tripObj.get("passengers")}")
+                            Log.d("DriverRepository", "Trip legs: ${tripObj.get("legs")}")
+                            gson.fromJson(tripObj, TripDetails::class.java)
+                        }
+                        // server may return bare TripDetails
+                        obj.has("id") && obj.has("status") -> {
+                            Log.d("DriverRepository", "Found direct TripDetails structure")
+                            Log.d("DriverRepository", "Direct purpose: ${obj.get("purpose")}")
+                            Log.d("DriverRepository", "Direct passengers: ${obj.get("passengers")}")
+                            gson.fromJson(obj, TripDetails::class.java)
+                        }
+                        else -> {
+                            Log.d("DriverRepository", "Using fallback parsing")
+                            gson.fromJson(obj, TripDetails::class.java)
+                        }
+                    }
+                } else {
+                    throw IllegalStateException("Unexpected JSON for trip details")
+                }
+                
+                Log.d("DriverRepository", "Parsed trip details - ID: ${tripDetails.id}, Purpose: ${tripDetails.purpose}, Passengers: ${tripDetails.passengers}")
+                Log.d("DriverRepository", "Passengers type: ${tripDetails.passengers?.javaClass?.simpleName}")
+                Log.d("DriverRepository", "Passengers isJsonArray: ${tripDetails.passengers?.isJsonArray}")
+                Log.d("DriverRepository", "Passengers isJsonPrimitive: ${tripDetails.passengers?.isJsonPrimitive}")
+                if (tripDetails.passengers?.isJsonPrimitive == true) {
+                    Log.d("DriverRepository", "Passengers as string: ${tripDetails.passengers?.asString}")
+                }
+                Result.success(tripDetails)
             } catch (e: Exception) {
                 Log.e("DriverRepository", "Error getting trip details: ${e.message}")
+                e.printStackTrace()
                 Result.failure(e)
             }
         }
@@ -154,6 +218,113 @@ class DriverRepository(val apiService: ApiService) {
                 Log.e("Repository", "Error in getCompletedTrips: ${e.message}")
                 Log.e("Repository", "Exception type: ${e.javaClass.simpleName}")
                 e.printStackTrace()
+                Result.failure(e)
+            }
+        }
+    }
+
+    // Shared trip leg execution methods
+    suspend fun getSharedTripLegs(tripId: Int): List<SharedTripLeg> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "=== GET SHARED TRIP LEGS ===")
+                Log.d("DriverRepository", "Getting shared trip legs for trip $tripId")
+                val response = apiService.getSharedTripLegs(tripId)
+                Log.d("DriverRepository", "Raw API response: $response")
+                Log.d("DriverRepository", "Response size: ${response.size}")
+                
+                // Log each leg's raw data
+                response.forEachIndexed { index, leg ->
+                    Log.d("DriverRepository", "=== RAW LEG $index ===")
+                    Log.d("DriverRepository", "ID: ${leg.leg_id}")
+                    Log.d("DriverRepository", "Status: ${leg.status}")
+                    Log.d("DriverRepository", "Odometer End: ${leg.odometer_end}")
+                    Log.d("DriverRepository", "Fuel End: ${leg.fuel_end}")
+                    Log.d("DriverRepository", "Fuel Used: ${leg.fuel_used}")
+                    Log.d("DriverRepository", "Fuel Purchased: ${leg.fuel_purchased}")
+                    Log.d("DriverRepository", "Notes: ${leg.notes}")
+                }
+                
+                response
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Error getting shared trip legs: ${e.message}")
+                e.printStackTrace()
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun logLegDeparture(tripId: Int, legId: Int, request: LegDepartureRequest): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "Logging leg departure for trip $tripId, leg $legId")
+                val response = apiService.logLegDeparture(tripId, legId, request)
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "Leg departure successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "Leg departure failed: ${response.code()} - $errorBody")
+                    Result.failure(Exception("Leg departure failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Leg departure exception", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun logLegArrival(tripId: Int, legId: Int, request: LegArrivalRequest): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "Logging leg arrival for trip $tripId, leg $legId")
+                val response = apiService.logLegArrival(tripId, legId, request)
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "Leg arrival successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "Leg arrival failed: ${response.code()} - $errorBody")
+                    Result.failure(Exception("Leg arrival failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Leg arrival exception", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun completeLeg(tripId: Int, legId: Int, request: LegCompletionRequest): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "Completing leg for trip $tripId, leg $legId")
+                val response = apiService.completeLeg(tripId, legId, request)
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "Leg completion successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "Leg completion failed: ${response.code()} - $errorBody")
+                    Result.failure(Exception("Leg completion failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Leg completion exception", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun submitSharedTrip(tripId: Int): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = apiService.submitSharedTrip(tripId)
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Result.failure(Exception("Submit shared trip failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
                 Result.failure(e)
             }
         }

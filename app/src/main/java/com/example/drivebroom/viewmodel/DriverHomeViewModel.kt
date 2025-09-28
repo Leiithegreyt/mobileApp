@@ -8,6 +8,7 @@ import com.example.drivebroom.network.Trip
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import android.util.Log
 
 class DriverHomeViewModel(private val apiService: ApiService) : ViewModel() {
     private val _uiState = MutableStateFlow<DriverHomeUiState>(DriverHomeUiState.Loading)
@@ -24,6 +25,21 @@ class DriverHomeViewModel(private val apiService: ApiService) : ViewModel() {
                 val profile = apiService.getDriverProfile()
                 val tripsResponse = apiService.getAssignedTrips()
                 val trips = tripsResponse.trips
+                
+                // Detailed logging for debugging
+                Log.d("DriverHomeViewModel", "=== API RESPONSE DEBUG ===")
+                Log.d("DriverHomeViewModel", "API Response message: ${tripsResponse.message}")
+                Log.d("DriverHomeViewModel", "API Response count: ${tripsResponse.count}")
+                Log.d("DriverHomeViewModel", "Trips list size: ${trips.size}")
+                
+                trips.forEachIndexed { index, trip ->
+                    Log.d("DriverHomeViewModel", "Trip $index: id=${trip.id}, destination=${trip.destination}, date=${trip.travel_date}, status=${trip.status}, type=${trip.trip_type}")
+                }
+                
+                // Log counts of shared vs single for quick diagnostics
+                val sharedCount = trips.count { it.trip_type == "shared" }
+                val singleCount = trips.size - sharedCount
+                Log.d("DriverHomeViewModel", "Assigned trips: total=${trips.size}, shared=${sharedCount}, single=${singleCount}")
                 _uiState.value = DriverHomeUiState.Success(profile, trips)
             } catch (e: Exception) {
                 _uiState.value = DriverHomeUiState.Error(e.message ?: "Failed to load data")

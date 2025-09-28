@@ -31,26 +31,46 @@ import androidx.compose.ui.text.style.TextOverflow
 @Composable
 fun TripDetailsScreen(
     tripDetails: TripDetails,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSharedTripClick: (TripDetails) -> Unit = {},
+    viewModel: TripDetailsViewModel? = null
 ) {
     val context = LocalContext.current
-    val viewModel: TripDetailsViewModel = viewModel(
+    val tripDetailsViewModel: TripDetailsViewModel = viewModel ?: viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                 val tokenManager = TokenManager(context)
                 val networkClient = com.example.drivebroom.network.NetworkClient(tokenManager)
                 val repo = DriverRepository(networkClient.apiService)
                 @Suppress("UNCHECKED_CAST")
-                return TripDetailsViewModel(repo, tokenManager) as T
+                return TripDetailsViewModel(repo, tokenManager, context) as T
             }
         }
     )
-    val actionState by viewModel.actionState.collectAsState()
-    val latestTripDetails by viewModel.tripDetails.collectAsState()
-    val itinerary by viewModel.itinerary.collectAsState()
+    val actionState by tripDetailsViewModel.actionState.collectAsState()
+    val latestTripDetails by tripDetailsViewModel.tripDetails.collectAsState()
+    val itinerary by tripDetailsViewModel.itinerary.collectAsState()
+    val isSharedTrip by tripDetailsViewModel.isSharedTrip.collectAsState()
+    val sharedTripLegs by tripDetailsViewModel.sharedTripLegs.collectAsState()
+    val currentLegIndex by tripDetailsViewModel.currentLegIndex.collectAsState()
 
     // Use latestTripDetails if available, else fallback to initial tripDetails
     val trip = latestTripDetails ?: tripDetails
+
+    // Check if this is a shared trip and route accordingly
+    if (isSharedTrip) {
+        SharedTripDetailsScreen(
+            tripDetails = trip,
+            sharedTripLegs = sharedTripLegs,
+            onBack = onBack,
+            onStartTrip = { onSharedTripClick(trip) },
+            onLegClick = { legId ->
+                // Navigate to leg execution screen
+                onSharedTripClick(trip)
+            }
+        )
+        return
+    }
 
     // Itinerary state: list of legs (odometer, time, destination)
     data class ItineraryLeg(val odometer: Double, val time: String, val destination: String)
@@ -71,13 +91,8 @@ fun TripDetailsScreen(
     var canReturn by remember { mutableStateOf(false) }
     var lastOdometerArrival by remember { mutableStateOf<Double?>(null) }
 
-    // On first composition, load trip details and clear form fields when trip changes
+    // Clear form fields when trip changes (trip details are already loaded by MainActivity)
     LaunchedEffect(tripDetails.id) {
-        viewModel.loadTripDetails(tripDetails.id)
-        
-        // Clear ViewModel state when trip changes
-        viewModel.clearItinerary()
-        
         // Clear all form fields when trip changes
         currentLegOdometer = ""
         currentLegFuelBalance = ""
@@ -133,12 +148,18 @@ fun TripDetailsScreen(
         trip.travel_time
     }
 
-    // Parse passengers JSON string
-    val passengersList = try {
-        Json.decodeFromString<List<String>>(trip.passengers)
-    } catch (e: Exception) {
-        emptyList()
-    }
+    // Parse passengers: backend may send array or stringified array
+    val passengersList: List<String> = try {
+        val elem = trip.passengers
+        when {
+            elem.isJsonArray -> elem.asJsonArray.mapNotNull { it.asString }
+            elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
+                val raw = elem.asString
+                try { Json.decodeFromString<List<String>>(raw) } catch (_: Exception) { emptyList() }
+            }
+            else -> emptyList()
+        }
+    } catch (_: Exception) { emptyList() }
 
     Scaffold(
         topBar = {
@@ -166,6 +187,7 @@ fun TripDetailsScreen(
                     Text("Vehicle: ${vehicle.plateNumber}", style = MaterialTheme.typography.bodyMedium)
                 }
                 Text("Destination: ${trip.destination}", style = MaterialTheme.typography.bodyMedium)
+                Text("Purpose: ${trip.purpose ?: "-"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Date/Time: $formattedTravelDate, $formattedTravelTime", style = MaterialTheme.typography.bodyMedium)
                 Text("Total Distance Travelled: ${String.format("%.2f", totalDistanceTravelled)} km", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Divider(Modifier.padding(vertical = 12.dp))
@@ -298,7 +320,7 @@ fun TripDetailsScreen(
                     val fuel = currentLegFuelBalance.toDoubleOrNull()
                     val dep = currentLegDestination
                     if (odo != null && fuel != null) {
-                        viewModel.logDeparture(trip.id, odo, fuel)
+                        tripDetailsViewModel.logDeparture(trip.id, odo, fuel)
                         lastFuelBalanceStart = fuel
                         tripStarted = true
                         canArrive = true
@@ -311,10 +333,10 @@ fun TripDetailsScreen(
                         android.util.Log.d("TripDetailsScreen", "Time for backend: $timeForBackend")
                         android.util.Log.d("TripDetailsScreen", "Departure location: ${if (dep.isNotBlank()) dep else "Isatu Miagao Campus"}")
                         
-                        viewModel.addDepartureLeg(odo, timeForBackend, if (dep.isNotBlank()) dep else "Isatu Miagao Campus", timeForDisplay)
+                        tripDetailsViewModel.addDepartureLeg(odo, timeForBackend, if (dep.isNotBlank()) dep else "Isatu Miagao Campus", timeForDisplay)
                         
                         // Log the itinerary state after adding
-                        android.util.Log.d("TripDetailsScreen", "Itinerary after adding departure: ${viewModel.itinerary.value}")
+                        android.util.Log.d("TripDetailsScreen", "Itinerary after adding departure: ${tripDetailsViewModel.itinerary.value}")
                         showDepartureDialog = false
                         currentLegOdometer = ""
                         currentLegFuelBalance = ""
@@ -402,9 +424,9 @@ fun TripDetailsScreen(
                         
                         val timeForBackend = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
                         val timeForDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
-                        viewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
+                        tripDetailsViewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
                         // Also notify backend about arrival (uses default 0.0 if not provided)
-                        viewModel.logArrival(trip.id)
+                        tripDetailsViewModel.logArrival(trip.id)
                         showArrivalDialog = false
                         showNextStopPrompt = true
                         canArrive = false
@@ -545,7 +567,7 @@ fun TripDetailsScreen(
                         } else {
                             listOf(
                                 com.example.drivebroom.network.PassengerDetail(
-                                    name = trip.passenger_email,
+                                    name = trip.passenger_email ?: "",
                                     destination = trip.destination,
                                     signature = ""
                                 )
@@ -583,7 +605,7 @@ fun TripDetailsScreen(
                             // Fallback if no departure leg recorded
                             emptyList()
                         }
-                        viewModel.logReturn(
+                        tripDetailsViewModel.logReturn(
                             trip.id,
                             lastFuelBalanceStart!!,
                             fuelPurchased,

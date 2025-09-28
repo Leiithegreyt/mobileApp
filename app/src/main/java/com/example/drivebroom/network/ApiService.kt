@@ -2,10 +2,11 @@ package com.example.drivebroom.network
 
 import com.google.gson.annotations.SerializedName
 import retrofit2.http.*
+import com.google.gson.JsonElement
 
 interface ApiService {
     @POST("driver/login")
-    suspend fun loginDriver(@Body loginRequest: LoginRequest): LoginResponse
+    suspend fun loginDriver(@Body loginRequest: LoginRequest): JsonElement
 
     @GET("me")
     suspend fun getDriverProfile(): DriverProfile
@@ -14,7 +15,7 @@ interface ApiService {
     suspend fun getAssignedTrips(): AssignedTripsResponse
 
     @GET("driver/trips/{id}")
-    suspend fun getTripDetails(@Path("id") tripId: Int): TripDetails
+    suspend fun getTripDetails(@Path("id") tripId: Int): com.google.gson.JsonElement
 
     @GET("driver/trips/completed")
     suspend fun getCompletedTrips(): CompletedTripsResponse
@@ -42,6 +43,35 @@ interface ApiService {
         @Path("tripId") tripId: Int,
         @Body body: ReturnBody
     ): retrofit2.Response<Unit>
+
+    // New API endpoints for shared trip leg execution
+    @POST("shared-trips/{tripId}/legs/{legId}/depart")
+    suspend fun logLegDeparture(
+        @Path("tripId") tripId: Int,
+        @Path("legId") legId: Int,
+        @Body body: LegDepartureRequest
+    ): retrofit2.Response<Unit>
+
+    @POST("shared-trips/{tripId}/legs/{legId}/arrive")
+    suspend fun logLegArrival(
+        @Path("tripId") tripId: Int,
+        @Path("legId") legId: Int,
+        @Body body: LegArrivalRequest
+    ): retrofit2.Response<Unit>
+
+    @POST("shared-trips/{tripId}/legs/{legId}/complete")
+    suspend fun completeLeg(
+        @Path("tripId") tripId: Int,
+        @Path("legId") legId: Int,
+        @Body body: LegCompletionRequest
+    ): retrofit2.Response<Unit>
+
+    @GET("shared-trips/{tripId}/legs")
+    suspend fun getSharedTripLegs(@Path("tripId") tripId: Int): List<SharedTripLeg>
+
+    // Finalize full shared trip
+    @POST("shared-trips/{tripId}/submit")
+    suspend fun submitSharedTrip(@Path("tripId") tripId: Int): retrofit2.Response<Unit>
 }
 
 data class LoginRequest(
@@ -76,20 +106,33 @@ data class Trip(
     val travel_time: String?,
     val status: String?,
     val pickup_location: String?,
-    @SerializedName("requested_by") val requestedBy: String?
+    @SerializedName("requested_by") val requestedBy: String?,
+    val trip_type: String? = null, // "single" or "shared"
+    val key: String? = null, // optional stable key like "shared_{id}"
+    val is_shared_trip: Int? = null, // 1 or 0 (backend-provided)
+    val shared_trip_id: Int? = null
 )
 
 data class TripDetails(
     val id: Int,
     val status: String,
     val travel_date: String,
-    val passenger_email: String,
+    val passenger_email: String? = null,
     val date_of_request: String,
     val travel_time: String,
     val destination: String,
-    val purpose: String,
-    val passengers: String,
-    val vehicle: Vehicle?
+    val purpose: String? = null,
+    val passengers: com.google.gson.JsonElement,
+    val vehicle: Vehicle?,
+    val trip_type: String? = "single", // "single" or "shared"
+    val stops: List<TripStop>? = null, // Legacy stops
+    val legs: List<SharedTripLeg>? = null, // New: legs from shared trips
+    val current_leg: Int? = null // Current leg index for shared trips
+)
+
+data class TripDetailsResponse(
+    val trip: TripDetails,
+    val message: String? = null
 )
 
 data class CompletedTrip(
@@ -168,4 +211,67 @@ data class AssignedTripsResponse(
     val trips: List<Trip>,
     val message: String,
     val count: Int
+)
+
+// New data classes for multi-leg shared trips
+data class TripStop(
+    val id: Int,
+    val stop_order: Int,
+    val team_name: String,
+    val destination: String,
+    val passenger_count: Int,
+    val passengers: List<String>,
+    val pickup_time: String?,
+    val dropoff_time: String?,
+    val status: String // "pending", "in_progress", "completed"
+)
+
+data class SharedTripLeg(
+    val leg_id: Int,
+    val stop_id: Int,
+    val team_name: String,
+    val destination: String,
+    val passengers: List<String>,
+    val odometer_start: Double?,
+    val odometer_end: Double?,
+    val fuel_start: Double?,
+    val fuel_end: Double?,
+    val fuel_used: Double?,
+    val fuel_purchased: Double?,
+    val notes: String?,
+    val departure_time: String?,
+    val arrival_time: String?,
+    val departure_location: String? = null,
+    val arrival_location: String? = null,
+    val status: String // "pending", "in_progress", "completed"
+)
+
+// API endpoints for shared trip leg execution
+data class LegDepartureRequest(
+    val odometer_start: Double,
+    val fuel_start: Double,
+    val passengers_confirmed: List<String>,
+    val departure_time: String,
+    val departure_location: String,
+    val manifest_override_reason: String? = null
+)
+
+data class LegArrivalRequest(
+    val odometer_end: Double,
+    val fuel_used: Double?,
+    val fuel_end: Double,
+    val passengers_dropped: List<String>,
+    val arrival_time: String,
+    val arrival_location: String,
+    val fuel_purchased: Double? = null,
+    val notes: String? = null
+)
+
+data class LegCompletionRequest(
+    @SerializedName("final_odometer") val final_odometer: Double,
+    @SerializedName("final_fuel") val final_fuel: Double,
+    @SerializedName("distance_travelled") val distance_travelled: Double,
+    @SerializedName("fuel_used") val fuel_used: Double,
+    @SerializedName("fuel_purchased") val fuel_purchased: Double?,
+    @SerializedName("notes") val notes: String?
 ) 

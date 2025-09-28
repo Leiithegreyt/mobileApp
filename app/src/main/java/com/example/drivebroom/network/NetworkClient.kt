@@ -6,6 +6,11 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.converter.scalars.ScalarsConverterFactory
+import com.google.gson.GsonBuilder
+import okhttp3.ResponseBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody.Companion.toResponseBody
 import java.util.concurrent.TimeUnit
 import android.util.Log
 import okio.Buffer
@@ -32,6 +37,22 @@ class NetworkClient(private val tokenManager: TokenManager) {
             level = HttpLoggingInterceptor.Level.BODY
         })
         .addInterceptor(authErrorHandler) // Add 401 handler first
+        // Sanitize any non-JSON preamble from server responses before parsing
+        .addInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            val body = response.body
+            if (body == null) return@addInterceptor response
+
+            return@addInterceptor try {
+                val raw = body.string()
+                val cleaned = sanitizeJson(raw)
+                val mediaType = body.contentType()?.toString()?.toMediaTypeOrNull()
+                val newBody: ResponseBody = cleaned.toResponseBody(mediaType)
+                response.newBuilder().body(newBody).build()
+            } catch (e: Exception) {
+                response
+            }
+        }
         .addInterceptor { chain ->
             val token = tokenManager.getToken()
             Log.d("NetworkClient", "Using token: $token")
@@ -94,8 +115,34 @@ class NetworkClient(private val tokenManager: TokenManager) {
     private val retrofit = Retrofit.Builder()
         .baseUrl(AppConfig.API_BASE_URL)
         .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create())
+        // Handle non-JSON or plain text gracefully
+        .addConverterFactory(ScalarsConverterFactory.create())
+        // Lenient JSON to tolerate minor formatting issues
+        .addConverterFactory(
+            GsonConverterFactory.create(
+                GsonBuilder()
+                    .setLenient()
+                    .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                    .create()
+            )
+        )
         .build()
 
     val apiService: ApiService = retrofit.create(ApiService::class.java)
+
+    private fun sanitizeJson(input: String): String {
+        if (input.isEmpty()) return input
+        // Remove UTF-8 BOM if present
+        var s = if (input.isNotEmpty() && input[0] == '\uFEFF') input.substring(1) else input
+        // Drop non-JSON preamble lines until we hit a line starting with { or [
+        val lines = s.split("\n", "\r\n")
+        val startIdx = lines.indexOfFirst { line ->
+            val t = line.trimStart()
+            t.startsWith("{") || t.startsWith("[")
+        }
+        if (startIdx >= 0) {
+            return lines.drop(startIdx).joinToString("\n")
+        }
+        return s
+    }
 } 
