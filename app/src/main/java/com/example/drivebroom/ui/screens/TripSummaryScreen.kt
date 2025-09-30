@@ -27,6 +27,7 @@ fun TripSummaryScreen(
     completedLegs: List<SharedTripLeg>,
     totalDistance: Double,
     totalFuelUsed: Double,
+    showSubmitButton: Boolean = true,
     onBack: () -> Unit,
     onSubmitLogs: () -> Unit
 ) {
@@ -47,7 +48,7 @@ fun TripSummaryScreen(
 
     // Calculate statistics
     val totalStops = completedLegs.size
-    val totalPassengers = completedLegs.sumOf { it.passengers.size }
+    val totalPassengers = completedLegs.sumOf { it.passengers?.size ?: 0 }
     val completedStops = completedLegs.count { it.status == "completed" }
     val overallEfficiency = if (totalFuelUsed > 0.0) totalDistance / totalFuelUsed else 0.0
 
@@ -191,17 +192,19 @@ fun TripSummaryScreen(
                 CompletedLegCard(leg = leg)
             }
 
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Submit Button
-                Button(
-                    onClick = onSubmitLogs,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Submit Full Trip")
+            if (showSubmitButton) {
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Submit Button
+                    Button(
+                        onClick = onSubmitLogs,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Submit Full Trip")
+                    }
                 }
             }
         }
@@ -275,7 +278,7 @@ private fun CompletedLegCard(leg: SharedTripLeg) {
             )
             
             Text(
-                text = "Passengers: ${leg.passengers.size}",
+                text = "Passengers: ${leg.passengers?.size ?: 0}",
                 style = MaterialTheme.typography.bodyMedium
             )
             

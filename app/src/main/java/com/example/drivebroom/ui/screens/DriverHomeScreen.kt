@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import com.example.drivebroom.ui.components.StatusChip
 import com.example.drivebroom.ui.screens.SharedTripDetailsViewScreen
+import com.example.drivebroom.utils.TripNotificationManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +40,7 @@ fun DriverHomeScreen(
     var showCompletedTrips by remember { mutableStateOf(false) }
     var selectedCompletedTrip by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     var showSharedTripDetails by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val viewModel: TripDetailsViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
@@ -53,6 +55,20 @@ fun DriverHomeScreen(
     )
     val completedTrips by viewModel.completedTrips.collectAsState()
     val completedTripsMessage by viewModel.completedTripsMessage.collectAsState()
+    // Track which trip IDs we've already notified about to prevent duplicates
+    var notifiedTripIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+
+    // Fire local notifications for newly assigned trips when the trips prop changes
+    LaunchedEffect(trips) {
+        val newTrips = trips.filter { it.status?.equals("approved", ignoreCase = true) == true && !notifiedTripIds.contains(it.id) }
+        if (newTrips.isNotEmpty()) {
+            val notifier = TripNotificationManager(LocalContext.current)
+            newTrips.forEach { t ->
+                notifier.showTripAssignedNotification(tripId = t.id, destination = t.destination ?: "New Trip")
+            }
+            notifiedTripIds = notifiedTripIds + newTrips.map { it.id }
+        }
+    }
 
     // Date logic for filtering
     val today = remember {
@@ -147,12 +163,12 @@ fun DriverHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Driver Dashboard") },
+                title = { Text(driverProfile?.name ?: "Driver") },
                 actions = {
                     IconButton(onClick = { showProfile = true }) {
                         Icon(Icons.Default.Person, contentDescription = "Profile")
                     }
-                    IconButton(onClick = onLogout) {
+                    IconButton(onClick = { showLogoutConfirm = true }) {
                         Icon(Icons.Default.ExitToApp, contentDescription = "Logout")
                     }
                 }
@@ -205,11 +221,13 @@ fun DriverHomeScreen(
                     .padding(16.dp)
             ) {
                 item {
-                    Text(
-                        text = "Welcome, ${driverProfile?.name ?: "Driver"}",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.padding(bottom = 32.dp)
-                    )
+                    Column(modifier = Modifier.padding(bottom = 24.dp)) {
+                        Text(
+                            text = "University Trip Ticket – Driver Dashboard",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
                 // Add Completed Trips Button
                 item {
@@ -282,6 +300,24 @@ fun DriverHomeScreen(
                 TextButton(onClick = { showProfile = false }) {
                     Text("Close")
                 }
+            }
+        )
+    }
+
+    // Logout confirmation dialog
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = { Text("Confirm Logout") },
+            text = { Text("Are you sure you want to log out?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLogoutConfirm = false
+                    onLogout()
+                }) { Text("Logout") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirm = false }) { Text("Cancel") }
             }
         )
     }

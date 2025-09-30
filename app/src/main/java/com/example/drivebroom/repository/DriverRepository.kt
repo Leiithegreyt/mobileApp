@@ -132,6 +132,43 @@ class DriverRepository(val apiService: ApiService) {
                             Log.d("DriverRepository", "Trip legs: ${tripObj.get("legs")}")
                             gson.fromJson(tripObj, TripDetails::class.java)
                         }
+                        obj.has("data") -> {
+                            Log.d("DriverRepository", "Found 'data' key, parsing nested object (unified API)")
+                            val dataObj = obj.get("data").asJsonObject
+                            Log.d("DriverRepository", "Data object keys: ${dataObj.keySet()}")
+                            // Try Gson first
+                            val parsed: TripDetails = try {
+                                gson.fromJson(dataObj, TripDetails::class.java)
+                            } catch (e: Exception) {
+                                Log.w("DriverRepository", "Gson parse failed for unified data: ${e.message}")
+                                TripDetails(
+                                    id = 0,
+                                    status = dataObj.get("status")?.asString ?: "approved",
+                                    travel_date = dataObj.get("travel_date")?.asString ?: "",
+                                    date_of_request = dataObj.get("date_of_request")?.asString ?: dataObj.get("created_at")?.asString ?: "",
+                                    travel_time = dataObj.get("departure_time")?.asString ?: "",
+                                    destination = dataObj.get("destination")?.asString ?: if (dataObj.has("trip_stops")) "Multiple Destinations" else "",
+                                    purpose = dataObj.get("utilization_type")?.asString,
+                                    passengers = com.google.gson.JsonArray(),
+                                    vehicle = dataObj.get("vehicle")?.let { gson.fromJson(it, com.example.drivebroom.network.Vehicle::class.java) },
+                                    trip_type = dataObj.get("trip_type")?.asString ?: "shared",
+                                    stops = null,
+                                    legs = null,
+                                    current_leg = 0
+                                )
+                            }
+                            // If id still 0, synthesize minimal fields from data
+                            if (parsed.id == 0 && dataObj.has("id")) {
+                                Log.w("DriverRepository", "Parsed id was 0; overriding from data.id")
+                                parsed.copy(
+                                    id = dataObj.get("id").asInt,
+                                    purpose = parsed.purpose ?: dataObj.get("utilization_type")?.asString,
+                                    destination = parsed.destination.ifEmpty { if (dataObj.has("trip_stops")) "Multiple Destinations" else dataObj.get("destination")?.asString ?: "" }
+                                )
+                            } else {
+                                parsed
+                            }
+                        }
                         // server may return bare TripDetails
                         obj.has("id") && obj.has("status") -> {
                             Log.d("DriverRepository", "Found direct TripDetails structure")
@@ -223,13 +260,13 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
-    // Shared trip leg execution methods
-    suspend fun getSharedTripLegs(tripId: Int): List<SharedTripLeg> {
+    // Unified trip legs (single + shared)
+    suspend fun getTripLegs(tripId: Int): List<SharedTripLeg> {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d("DriverRepository", "=== GET SHARED TRIP LEGS ===")
-                Log.d("DriverRepository", "Getting shared trip legs for trip $tripId")
-                val response = apiService.getSharedTripLegs(tripId)
+                Log.d("DriverRepository", "=== GET TRIP LEGS (UNIFIED) ===")
+                Log.d("DriverRepository", "Getting trip legs for trip $tripId")
+                val response = apiService.getTripLegs(tripId)
                 Log.d("DriverRepository", "Raw API response: $response")
                 Log.d("DriverRepository", "Response size: ${response.size}")
                 
@@ -247,7 +284,7 @@ class DriverRepository(val apiService: ApiService) {
                 
                 response
             } catch (e: Exception) {
-                Log.e("DriverRepository", "Error getting shared trip legs: ${e.message}")
+                Log.e("DriverRepository", "Error getting trip legs: ${e.message}")
                 e.printStackTrace()
                 emptyList()
             }

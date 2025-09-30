@@ -139,19 +139,32 @@ fun SharedTripLegExecutionScreen(
             }
             elem.isJsonArray -> {
                 android.util.Log.d("SharedTripLegExecutionScreen", "Parsing as JsonArray")
-                elem.asJsonArray.mapNotNull { it.asString }
+                // Support both ["Alice","Bob"] and [{"name":"Alice"},{"name":"Bob"}]
+                elem.asJsonArray.mapNotNull { jsonEl ->
+                    if (jsonEl.isJsonPrimitive && jsonEl.asJsonPrimitive.isString) jsonEl.asString
+                    else if (jsonEl.isJsonObject && jsonEl.asJsonObject.has("name")) jsonEl.asJsonObject.get("name").asString
+                    else null
+                }
             }
             elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
                 android.util.Log.d("SharedTripLegExecutionScreen", "Parsing as string")
                 val raw = elem.asString
-                try { 
-                    val parsed = Json.decodeFromString<List<String>>(raw)
-                    android.util.Log.d("SharedTripLegExecutionScreen", "String parsed successfully: $parsed")
-                    parsed
-                } catch (e: Exception) { 
-                    android.util.Log.e("SharedTripLegExecutionScreen", "String parsing failed: ${e.message}")
-                    emptyList() 
+                var parsedList: List<String> = emptyList()
+                // Try to parse as list of {name}
+                try {
+                    val objects = Json.decodeFromString<List<Map<String, String>>>(raw)
+                    val names = objects.mapNotNull { it["name"] }
+                    if (names.isNotEmpty()) parsedList = names
+                } catch (_: Exception) {}
+                // Fallback: parse as list of strings if still empty
+                if (parsedList.isEmpty()) {
+                    try {
+                        parsedList = Json.decodeFromString<List<String>>(raw)
+                    } catch (_: Exception) {
+                        parsedList = emptyList()
+                    }
                 }
+                parsedList
             }
             else -> {
                 android.util.Log.d("SharedTripLegExecutionScreen", "Unknown element type, returning empty list")
@@ -669,8 +682,9 @@ fun SharedTripLegExecutionScreen(
                     android.util.Log.d("SharedTripLegExecutionScreen", "departureLocation isBlank: ${departureLocation.isBlank()}")
                     android.util.Log.d("SharedTripLegExecutionScreen", "Final depLoc being sent: '$depLoc'")
                     
-                    if (odo != null && fuel != null && confirmedPassengers.isNotEmpty()) {
-                        onLegDeparture(currentLeg?.leg_id ?: 0, odo, fuel, confirmedPassengers, depTime, depLoc, override)
+                    if (odo != null && fuel != null) {
+                        val passengersForBackend = if (confirmedPassengers.isNotEmpty()) confirmedPassengers else (currentLeg?.passengers ?: tripPassengersList)
+                        onLegDeparture(currentLeg?.leg_id ?: 0, odo, fuel, passengersForBackend, depTime, depLoc, override)
                         showDepartureDialog = false
                     }
                 }) {
@@ -687,6 +701,24 @@ fun SharedTripLegExecutionScreen(
 
     // Arrival Dialog
     if (showArrivalDialog) {
+        // Ensure defaults when dialog opens
+        LaunchedEffect(Unit) {
+            if (arrivalLocation.isBlank()) {
+                arrivalLocation = currentLeg?.arrival_location ?: (currentLeg?.destination ?: "")
+            }
+            if (arrivalTime.isBlank()) {
+                arrivalTime = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+            }
+            if (fuelStart.isBlank() && currentLeg?.fuel_start != null) {
+                fuelStart = currentLeg.fuel_start.toString()
+            }
+            val startVal = fuelStart.toDoubleOrNull()
+            val endVal = fuelEnd.toDoubleOrNull()
+            if (startVal != null && endVal != null) {
+                val calc = startVal - endVal
+                fuelUsed = if (calc >= 0) calc.toString() else "0"
+            }
+        }
         AlertDialog(
             onDismissRequest = { showArrivalDialog = false },
             title = { Text("Arrival Details") },
@@ -713,7 +745,7 @@ fun SharedTripLegExecutionScreen(
                         onValueChange = { 
                             fuelEnd = it
                             // Auto-calculate fuel used when fuel end changes
-                            val fuelStartValue = fuelStart.toDoubleOrNull() ?: 0.0
+                            val fuelStartValue = fuelStart.toDoubleOrNull() ?: currentLeg?.fuel_start ?: 0.0
                             val fuelEndValue = it.toDoubleOrNull() ?: 0.0
                             val calculatedFuelUsed = fuelStartValue - fuelEndValue
                             
@@ -799,7 +831,10 @@ fun SharedTripLegExecutionScreen(
                     val arrLoc = if (arrivalLocation.isBlank()) (currentLeg?.destination ?: "") else arrivalLocation
                     if (odoEnd != null && fuelEndValue != null) {
                         // Call arrival with completion data included
-                        onLegArrival(currentLeg?.leg_id ?: 0, odoEnd, fuelUsedValue, fuelEndValue, confirmedPassengers, arrTime, arrLoc, fuelPurchasedValue, notes)
+                        val legId = currentLeg?.leg_id ?: 0
+                        onLegArrival(legId, odoEnd, fuelUsedValue, fuelEndValue, confirmedPassengers, arrTime, arrLoc, fuelPurchasedValue, notes)
+                        // Immediately mark leg as completed to satisfy trip submission requirements
+                        onLegComplete(legId, odoEnd, fuelEndValue, fuelPurchasedValue, notes)
                         legCompleted = true // Mark leg as completed
                         showArrivalDialog = false
                     }

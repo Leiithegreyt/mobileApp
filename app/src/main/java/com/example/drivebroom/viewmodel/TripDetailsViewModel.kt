@@ -31,6 +31,9 @@ class TripDetailsViewModel(
     private val context: Context? = null
 ) : ViewModel() {
     
+    // Track the last successfully loaded trip ID to guard against 0/invalid IDs
+    private var lastLoadedTripId: Int = -1
+
     // Helper function to convert 12-hour format to 24-hour format for backend
     private fun convertTo24Hour(time12Hour: String): String {
         return try {
@@ -151,18 +154,53 @@ class TripDetailsViewModel(
                 _tripDetails.value = details
                 _isLoading.value = false
                 android.util.Log.d("TripDetailsViewModel", "State updated - tripDetails: ${_tripDetails.value?.id}, isLoading: ${_isLoading.value}")
+                // Remember trip id
+                lastLoadedTripId = details.id
                 // Check if this is a shared trip
+                // Unified legs loading for both single and shared trips
                 _isSharedTrip.value = details.trip_type == "shared"
-                if (details.trip_type == "shared") {
-                    android.util.Log.d("TripDetailsViewModel", "This is a shared trip - using dedicated shared trip legs endpoint")
-                    // For shared trips, always use the dedicated shared trip legs endpoint
-                    // This ensures we get complete leg data with end values for auto-fill
-                    loadSharedTripLegs(tripId)
-                } else {
-                    android.util.Log.d("TripDetailsViewModel", "This is a regular trip")
-                }
+                android.util.Log.d("TripDetailsViewModel", "Loading legs via unified endpoint for trip: ${details.id}, type: ${details.trip_type}")
+                loadSharedTripLegs(tripId)
             }.onFailure { error ->
                 android.util.Log.e("TripDetailsViewModel", "Failed to load trip details: ${error.message}")
+                // If details 404, try unified legs as fallback and synthesize minimal details
+                val httpCode = (error as? retrofit2.HttpException)?.code()
+                if (httpCode == 404) {
+                    try {
+                        android.util.Log.w("TripDetailsViewModel", "Details 404. Falling back to /trips/{id}/legs to synthesize details.")
+                        val legs = repository.getTripLegs(tripId)
+                        _sharedTripLegs.value = legs
+                        val isShared = legs.size > 1
+                        _isSharedTrip.value = isShared
+                        val firstLeg = legs.firstOrNull()
+                        val destination = if (isShared) "Multiple Destinations" else (firstLeg?.destination ?: "-")
+                        val passengersArray = com.google.gson.JsonArray().apply {
+                            firstLeg?.passengers?.forEach { add(it) }
+                        }
+                        val minimal = com.example.drivebroom.network.TripDetails(
+                            id = tripId,
+                            status = "approved",
+                            travel_date = java.time.LocalDate.now().toString(),
+                            date_of_request = java.time.LocalDate.now().toString(),
+                            travel_time = java.time.LocalTime.now().toString(),
+                            destination = destination,
+                            purpose = null,
+                            passengers = passengersArray,
+                            vehicle = null,
+                            trip_type = if (isShared) "shared" else "single",
+                            stops = null,
+                            legs = legs,
+                            current_leg = 0
+                        )
+                        _tripDetails.value = minimal
+                        lastLoadedTripId = tripId
+                        _isLoading.value = false
+                        android.util.Log.d("TripDetailsViewModel", "Synthesized details for tripId=$tripId from legs (${legs.size}).")
+                        return@launch
+                    } catch (e: Exception) {
+                        android.util.Log.e("TripDetailsViewModel", "Fallback failed: ${e.message}")
+                    }
+                }
                 _isLoading.value = false
             }
         }
@@ -171,11 +209,13 @@ class TripDetailsViewModel(
     fun loadSharedTripLegs(tripId: Int) {
         viewModelScope.launch {
             try {
-                android.util.Log.d("TripDetailsViewModel", "=== LOADING SHARED TRIP LEGS ===")
+                android.util.Log.d("TripDetailsViewModel", "=== LOADING TRIP LEGS (UNIFIED) ===")
                 android.util.Log.d("TripDetailsViewModel", "Loading legs for trip ID: $tripId")
-                
-                val legs = repository.getSharedTripLegs(tripId)
+
+                val legs = repository.getTripLegs(tripId)
                 android.util.Log.d("TripDetailsViewModel", "Loaded ${legs.size} legs")
+                // Remember trip id when legs load
+                lastLoadedTripId = tripId
                 
                 // Enhanced debug logging for each leg's data
                 legs.forEachIndexed { index, leg ->
@@ -474,6 +514,8 @@ class TripDetailsViewModel(
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             try {
+                val safeTripId = if (tripId > 0) tripId else lastLoadedTripId
+                android.util.Log.d("TripDetailsViewModel", "Leg depart using tripId=$safeTripId (original=$tripId), legId=$legId")
                 val request = com.example.drivebroom.network.LegDepartureRequest(
                     odometer_start = odometerStart,
                     fuel_start = fuelStart,
@@ -482,7 +524,7 @@ class TripDetailsViewModel(
                     departure_location = departureLocation,
                     manifest_override_reason = manifestOverrideReason
                 )
-                val result = repository.logLegDeparture(tripId, legId, request)
+                val result = repository.logLegDeparture(safeTripId, legId, request)
                 _actionState.value = result.fold(
                     onSuccess = { 
                         android.util.Log.d("TripDetailsViewModel", "=== LEG DEPARTURE SUCCESS ===")
@@ -509,7 +551,24 @@ class TripDetailsViewModel(
                         android.util.Log.e("TripDetailsViewModel", "=== LEG DEPARTURE FAILED ===")
                         android.util.Log.e("TripDetailsViewModel", "Failed to depart leg ID: $legId")
                         android.util.Log.e("TripDetailsViewModel", "Error: ${it.message}")
-                        TripActionState.Error(it.message ?: "Leg departure failed") 
+                        // Fallback: if unified leg endpoint returns 404, try single-trip departure
+                        val httpCode = (it as? retrofit2.HttpException)?.code()
+                        if (httpCode == 404) {
+                            android.util.Log.w("TripDetailsViewModel", "Leg depart 404 - attempting single-trip /trips/{id}/departure fallback")
+                            viewModelScope.launch {
+                                val dep = repository.logDeparture(safeTripId, DepartureBody(odometerStart, fuelStart))
+                                _actionState.value = dep.fold(
+                                    onSuccess = {
+                                        loadTripDetails(safeTripId)
+                                        TripActionState.Success
+                                    },
+                                    onFailure = { TripActionState.Error(it.message ?: "Departure failed") }
+                                )
+                            }
+                            TripActionState.Loading
+                        } else {
+                            TripActionState.Error(it.message ?: "Leg departure failed")
+                        } 
                     }
                 )
             } catch (e: Exception) {
@@ -533,32 +592,63 @@ class TripDetailsViewModel(
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             try {
+                val safeTripId = if (tripId > 0) tripId else lastLoadedTripId
+                android.util.Log.d("TripDetailsViewModel", "Leg arrive using tripId=$safeTripId (original=$tripId), legId=$legId")
+                // Ensure passengers_dropped is non-empty for backend validation
+                val fallbackPassengers = getCurrentLeg()?.passengers?.filter { it.isNotBlank() } ?: emptyList()
+                val safePassengersDropped = if (passengersDropped.isNotEmpty()) passengersDropped else fallbackPassengers
+
                 val request = com.example.drivebroom.network.LegArrivalRequest(
                     odometer_end = odometerEnd,
                     fuel_used = fuelUsed,
                     fuel_end = fuelEnd,
-                    passengers_dropped = passengersDropped,
+                    passengers_dropped = safePassengersDropped,
                     arrival_time = convertTo24Hour(arrivalTime), // Convert to 24-hour for backend
                     arrival_location = arrivalLocation,
                     fuel_purchased = fuelPurchased,
                     notes = notes
                 )
-                val result = repository.logLegArrival(tripId, legId, request)
+                val result = repository.logLegArrival(safeTripId, legId, request)
                 _actionState.value = result.fold(
                     onSuccess = { 
                         android.util.Log.d("TripDetailsViewModel", "=== LEG ARRIVAL SUCCESS ===")
                         android.util.Log.d("TripDetailsViewModel", "Successfully arrived leg ID: $legId")
-                        
-                        // Reload shared trip legs to get updated status
-                        android.util.Log.d("TripDetailsViewModel", "Reloading shared trip legs after arrival...")
-                        loadSharedTripLegs(tripId)
-                        TripActionState.Success 
+                        // Update itinerary for single trip UI
+                        _itinerary.update { list ->
+                            if (list.isNotEmpty()) list.dropLast(1) + list.last().copy(
+                                odometerEnd = odometerEnd,
+                                timeArrival = convertTo24Hour(arrivalTime),
+                                arrival = arrivalLocation,
+                                timeArrivalDisplay = arrivalTime
+                            ) else list
+                        }
+                        // Immediately complete the leg after successful arrival
+                        android.util.Log.d("TripDetailsViewModel", "Completing leg after arrival...")
+                        completeLeg(safeTripId, legId, odometerEnd, fuelEnd, fuelPurchased, notes)
+                        TripActionState.Loading 
                     },
                     onFailure = { 
                         android.util.Log.e("TripDetailsViewModel", "=== LEG ARRIVAL FAILED ===")
                         android.util.Log.e("TripDetailsViewModel", "Failed to arrive leg ID: $legId")
                         android.util.Log.e("TripDetailsViewModel", "Error: ${it.message}")
-                        TripActionState.Error(it.message ?: "Leg arrival failed") 
+                        // Fallback: if unified leg arrival returns 404, try single-trip arrival
+                        val httpCode = (it as? retrofit2.HttpException)?.code()
+                        if (httpCode == 404) {
+                            android.util.Log.w("TripDetailsViewModel", "Leg arrive 404 - attempting single-trip /trips/{id}/arrival fallback")
+                            viewModelScope.launch {
+                                val arr = repository.logArrival(safeTripId, ArrivalBody(odometerEnd))
+                                _actionState.value = arr.fold(
+                                    onSuccess = {
+                                        loadTripDetails(safeTripId)
+                                        TripActionState.Success
+                                    },
+                                    onFailure = { TripActionState.Error(it.message ?: "Arrival failed") }
+                                )
+                            }
+                            TripActionState.Loading
+                        } else {
+                            TripActionState.Error(it.message ?: "Leg arrival failed")
+                        }
                     }
                 )
             } catch (e: Exception) {
@@ -571,6 +661,8 @@ class TripDetailsViewModel(
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             try {
+                val safeTripId = if (tripId > 0) tripId else lastLoadedTripId
+                android.util.Log.d("TripDetailsViewModel", "Leg complete using tripId=$safeTripId (original=$tripId), legId=$legId")
                 // Calculate distance travelled and fuel used for this leg
                 val currentLeg = getCurrentLeg()
                 val odometerStart = currentLeg?.odometer_start ?: 0.0
@@ -602,14 +694,14 @@ class TripDetailsViewModel(
                 android.util.Log.d("TripDetailsViewModel", "Completing leg ID: $legId")
                 android.util.Log.d("TripDetailsViewModel", "Request data: final_odometer=${request.final_odometer}, final_fuel=${request.final_fuel}")
                 
-                val result = repository.completeLeg(tripId, legId, request)
+                val result = repository.completeLeg(safeTripId, legId, request)
                 _actionState.value = result.fold(
                     onSuccess = {
                         android.util.Log.d("TripDetailsViewModel", "=== LEG COMPLETION SUCCESS ===")
                         android.util.Log.d("TripDetailsViewModel", "Successfully completed leg ID: $legId")
                         
                         // Reload shared trip legs to get updated status
-                        loadSharedTripLegs(tripId)
+                        loadSharedTripLegs(safeTripId)
                         
                         // Show notification for leg completion
                         context?.let { ctx ->
@@ -630,7 +722,14 @@ class TripDetailsViewModel(
                         android.util.Log.e("TripDetailsViewModel", "=== LEG COMPLETION FAILED ===")
                         android.util.Log.e("TripDetailsViewModel", "Failed to complete leg ID: $legId")
                         android.util.Log.e("TripDetailsViewModel", "Error: ${it.message}")
-                        TripActionState.Error(it.message ?: "Leg completion failed") 
+                        // Fallback: if unified leg completion returns 404, try single-trip return flow (requires UI to prompt final fields)
+                        val httpCode = (it as? retrofit2.HttpException)?.code()
+                        if (httpCode == 404) {
+                            android.util.Log.w("TripDetailsViewModel", "Leg complete 404 - backend may require single-trip /return endpoint. Use single-trip Complete flow.")
+                            TripActionState.Error("Trip not found for unified leg complete. Use single-trip Complete flow.")
+                        } else {
+                            TripActionState.Error(it.message ?: "Leg completion failed")
+                        }
                     }
                 )
             } catch (e: Exception) {

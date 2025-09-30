@@ -11,10 +11,10 @@ interface ApiService {
     @GET("me")
     suspend fun getDriverProfile(): DriverProfile
 
-    @GET("driver/trips")
+    @GET("trips")
     suspend fun getAssignedTrips(): AssignedTripsResponse
 
-    @GET("driver/trips/{id}")
+    @GET("trips/{id}")
     suspend fun getTripDetails(@Path("id") tripId: Int): com.google.gson.JsonElement
 
     @GET("driver/trips/completed")
@@ -44,33 +44,33 @@ interface ApiService {
         @Body body: ReturnBody
     ): retrofit2.Response<Unit>
 
-    // New API endpoints for shared trip leg execution
-    @POST("shared-trips/{tripId}/legs/{legId}/depart")
+    // Unified API endpoints for leg execution (single + shared)
+    @POST("trips/{tripId}/legs/{legId}/depart")
     suspend fun logLegDeparture(
         @Path("tripId") tripId: Int,
         @Path("legId") legId: Int,
         @Body body: LegDepartureRequest
     ): retrofit2.Response<Unit>
 
-    @POST("shared-trips/{tripId}/legs/{legId}/arrive")
+    @POST("trips/{tripId}/legs/{legId}/arrive")
     suspend fun logLegArrival(
         @Path("tripId") tripId: Int,
         @Path("legId") legId: Int,
         @Body body: LegArrivalRequest
     ): retrofit2.Response<Unit>
 
-    @POST("shared-trips/{tripId}/legs/{legId}/complete")
+    @POST("trips/{tripId}/legs/{legId}/complete")
     suspend fun completeLeg(
         @Path("tripId") tripId: Int,
         @Path("legId") legId: Int,
         @Body body: LegCompletionRequest
     ): retrofit2.Response<Unit>
 
-    @GET("shared-trips/{tripId}/legs")
-    suspend fun getSharedTripLegs(@Path("tripId") tripId: Int): List<SharedTripLeg>
+    @GET("trips/{tripId}/legs")
+    suspend fun getTripLegs(@Path("tripId") tripId: Int): List<SharedTripLeg>
 
-    // Finalize full shared trip
-    @POST("shared-trips/{tripId}/submit")
+    // Finalize full trip (single or shared) via unified endpoint
+    @POST("trips/{tripId}/submit")
     suspend fun submitSharedTrip(@Path("tripId") tripId: Int, @Body request: TripSubmissionRequest): retrofit2.Response<Unit>
 }
 

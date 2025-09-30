@@ -74,7 +74,7 @@ fun SharedTripDetailsScreen(
     val completedStops = sharedTripLegs.count { it.status == "completed" }
     val inProgressStops = sharedTripLegs.count { it.status == "in_progress" }
     val pendingStops = sharedTripLegs.count { it.status == "pending" }
-    val totalPassengers = sharedTripLegs.sumOf { it.passengers.size }
+    val totalPassengers = sharedTripLegs.sumOf { leg -> leg.passengers?.size ?: 0 }
 
     Scaffold(
         topBar = {
@@ -261,19 +261,20 @@ private fun LegCard(
                 style = MaterialTheme.typography.bodyMedium
             )
             
+            val safePassengers = leg.passengers ?: emptyList()
             Text(
-                text = "Passengers: ${leg.passengers.size}",
+                text = "Passengers: ${safePassengers.size}",
                 style = MaterialTheme.typography.bodyMedium
             )
             
-            if (leg.passengers.isNotEmpty()) {
+            if (safePassengers.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Passenger List:",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
                 )
-                leg.passengers.forEach { passenger ->
+                safePassengers.forEach { passenger ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(start = 8.dp, top = 2.dp)

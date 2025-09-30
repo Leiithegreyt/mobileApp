@@ -91,6 +91,10 @@ fun TripDetailsScreen(
     var canReturn by remember { mutableStateOf(false) }
     var lastOdometerArrival by remember { mutableStateOf<Double?>(null) }
 
+    // Passenger selections for single trip (visual parity with shared trip)
+    var confirmedPassengerSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var droppedPassengerSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     // Clear form fields when trip changes (trip details are already loaded by MainActivity)
     LaunchedEffect(tripDetails.id) {
         // Clear all form fields when trip changes
@@ -126,12 +130,17 @@ fun TripDetailsScreen(
         }
     } else 0.0
 
-    // Format dates
+    // Format date (supports plain yyyy-MM-dd as well)
     val formattedTravelDate = try {
         val zdt = ZonedDateTime.parse(trip.travel_date)
         zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
-    } catch (e: Exception) {
-        trip.travel_date
+    } catch (_: Exception) {
+        try {
+            val ld = java.time.LocalDate.parse(trip.travel_date, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+            ld.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        } catch (_: Exception) {
+            trip.travel_date
+        }
     }
 
     val formattedRequestDate = try {
@@ -144,18 +153,41 @@ fun TripDetailsScreen(
     val formattedTravelTime = try {
         val zdt = ZonedDateTime.parse(trip.travel_time)
         zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
-    } catch (e: Exception) {
-        trip.travel_time
+    } catch (_: Exception) {
+        try {
+            val lt = LocalTime.parse(trip.travel_time, DateTimeFormatter.ofPattern("HH:mm"))
+            lt.format(DateTimeFormatter.ofPattern("h:mm a"))
+        } catch (_: Exception) {
+            // Fallback to raw string if all parsing fails
+            trip.travel_time
+        }
     }
 
-    // Parse passengers: backend may send array or stringified array
+    // Parse passengers: supports ["Alice"], [{"name":"Alice"}], or stringified versions
     val passengersList: List<String> = try {
         val elem = trip.passengers
         when {
-            elem.isJsonArray -> elem.asJsonArray.mapNotNull { it.asString }
+            elem == null -> emptyList()
+            elem.isJsonArray -> {
+                elem.asJsonArray.mapNotNull { jsonEl ->
+                    if (jsonEl.isJsonPrimitive && jsonEl.asJsonPrimitive.isString) jsonEl.asString
+                    else if (jsonEl.isJsonObject && jsonEl.asJsonObject.has("name")) jsonEl.asJsonObject.get("name").asString
+                    else null
+                }
+            }
             elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
                 val raw = elem.asString
-                try { Json.decodeFromString<List<String>>(raw) } catch (_: Exception) { emptyList() }
+                var parsed: List<String> = emptyList()
+                // Try list of objects with name
+                try {
+                    val objects = Json.decodeFromString<List<Map<String, String>>>(raw)
+                    val names = objects.mapNotNull { it["name"] }
+                    if (names.isNotEmpty()) parsed = names
+                } catch (_: Exception) {}
+                if (parsed.isEmpty()) {
+                    try { parsed = Json.decodeFromString<List<String>>(raw) } catch (_: Exception) { parsed = emptyList() }
+                }
+                parsed
             }
             else -> emptyList()
         }
@@ -250,6 +282,7 @@ fun TripDetailsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    val hasOpenLeg = itinerary.isNotEmpty() && itinerary.last().odometerEnd == null
                     Button(
                         onClick = { showDepartureDialog = true },
                         enabled = (!tripStarted || canArrive) && actionState !is TripActionState.Loading,
@@ -258,15 +291,16 @@ fun TripDetailsScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     OutlinedButton(
                         onClick = { showArrivalDialog = true },
-                        enabled = (tripStarted && canArrive) && actionState !is TripActionState.Loading,
+                        enabled = hasOpenLeg,
                         modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
                     ) { Text("Arrival", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     Spacer(modifier = Modifier.width(8.dp))
+                    val canCompleteTrip = itinerary.isNotEmpty() && itinerary.last().odometerEnd != null && actionState !is TripActionState.Loading
                     OutlinedButton(
                         onClick = { showReturnDialog = true },
-                        enabled = canReturn && actionState !is TripActionState.Loading,
+                        enabled = canCompleteTrip,
                         modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
-                    ) { Text("Returned", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    ) { Text("Complete Trip", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
 
                 // Status/Loading/Error
@@ -312,6 +346,28 @@ fun TripDetailsScreen(
                         label = { Text("Departure Location") },
                         placeholder = { Text("Isatu Miagao Campus") }
                     )
+                    if (passengersList.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Passengers (confirm)", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Column {
+                            passengersList.forEach { name ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = confirmedPassengerSet.contains(name),
+                                        onCheckedChange = { checked ->
+                                            confirmedPassengerSet = if (checked) confirmedPassengerSet + name else confirmedPassengerSet - name
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(name, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -320,7 +376,20 @@ fun TripDetailsScreen(
                     val fuel = currentLegFuelBalance.toDoubleOrNull()
                     val dep = currentLegDestination
                     if (odo != null && fuel != null) {
-                        tripDetailsViewModel.logDeparture(trip.id, odo, fuel)
+                        // Unified leg departure for single trip with passenger list
+                        val passengersConfirmed = if (confirmedPassengerSet.isNotEmpty()) confirmedPassengerSet.toList() else passengersList
+                        val depTimeDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
+                        val depLocFinal = if (dep.isNotBlank()) dep else "Isatu Miagao Campus"
+                        tripDetailsViewModel.logLegDeparture(
+                            tripId = trip.id,
+                            legId = trip.id,
+                            odometerStart = odo,
+                            fuelStart = fuel,
+                            passengersConfirmed = passengersConfirmed,
+                            departureTime = depTimeDisplay,
+                            departureLocation = depLocFinal,
+                            manifestOverrideReason = null
+                        )
                         lastFuelBalanceStart = fuel
                         tripStarted = true
                         canArrive = true
@@ -333,7 +402,8 @@ fun TripDetailsScreen(
                         android.util.Log.d("TripDetailsScreen", "Time for backend: $timeForBackend")
                         android.util.Log.d("TripDetailsScreen", "Departure location: ${if (dep.isNotBlank()) dep else "Isatu Miagao Campus"}")
                         
-                        tripDetailsViewModel.addDepartureLeg(odo, timeForBackend, if (dep.isNotBlank()) dep else "Isatu Miagao Campus", timeForDisplay)
+                        tripDetailsViewModel.addDepartureLeg(odo, timeForBackend, depLocFinal, timeForDisplay)
+                        // Note: Single-trip backend departure does not require passengers_confirmed; we store selection locally only
                         
                         // Log the itinerary state after adding
                         android.util.Log.d("TripDetailsScreen", "Itinerary after adding departure: ${tripDetailsViewModel.itinerary.value}")
@@ -341,6 +411,7 @@ fun TripDetailsScreen(
                         currentLegOdometer = ""
                         currentLegFuelBalance = ""
                         currentLegDestination = "Isatu Miagao Campus"
+                        confirmedPassengerSet = emptySet()
                     } else {
                         // Basic feedback
                         android.widget.Toast.makeText(context, "Enter valid odometer and fuel.", android.widget.Toast.LENGTH_SHORT).show()
@@ -404,6 +475,28 @@ fun TripDetailsScreen(
                             }
                         }
                     }
+                    if (passengersList.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Passengers (dropped)", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Column {
+                            passengersList.forEach { name ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = droppedPassengerSet.contains(name),
+                                        onCheckedChange = { checked ->
+                                            droppedPassengerSet = if (checked) droppedPassengerSet + name else droppedPassengerSet - name
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(name, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -425,12 +518,26 @@ fun TripDetailsScreen(
                         val timeForBackend = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
                         val timeForDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
                         tripDetailsViewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
-                        // Also notify backend about arrival (uses default 0.0 if not provided)
-                        tripDetailsViewModel.logArrival(trip.id)
+                        // Unified leg arrival for single trip with passenger list
+                        val passengersDropped = if (droppedPassengerSet.isNotEmpty()) droppedPassengerSet.toList() else passengersList
+                        val fuelEndForNow = lastFuelBalanceStart ?: 0.0
+                        tripDetailsViewModel.logLegArrival(
+                            tripId = trip.id,
+                            legId = trip.id,
+                            odometerEnd = odometerEnd,
+                            fuelUsed = null,
+                            fuelEnd = fuelEndForNow,
+                            passengersDropped = passengersDropped,
+                            arrivalTime = timeForDisplay,
+                            arrivalLocation = arrivalLocation,
+                            fuelPurchased = null,
+                            notes = null
+                        )
                         showArrivalDialog = false
                         showNextStopPrompt = true
                         canArrive = false
                         currentArrivalOdometer = "" // Clear the input
+                        droppedPassengerSet = emptySet()
                     } else {
                         val msg = when {
                             arrivalLocation.isBlank() -> "No destination set for this trip."

@@ -215,7 +215,7 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                         LaunchedEffect(selectedTripId.value) {
                             selectedTripId.value?.let { tripId ->
                                 android.util.Log.d("MainActivity", "Loading trip details for tripId: $tripId")
-                                tripDetailsViewModel.resetState()
+                                // Do not reset state here to preserve in-progress itinerary when navigating back
                                 tripDetailsViewModel.loadTripDetails(tripId)
                             }
                         }
@@ -244,28 +244,15 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 }
                             }
                             currentTripDetails != null -> {
-                                if (currentTripDetails.trip_type == "shared") {
-                                    SharedTripFlowScreen(
-                                        tripDetails = currentTripDetails,
-                                        onBack = {
-                                            selectedTripId.value = null
-                                            tripDetailsError.value = null
-                                        },
-                                        viewModel = tripDetailsViewModel
-                                    )
-                                } else {
-                                    TripDetailsScreen(
-                                        tripDetails = currentTripDetails,
-                                        onBack = {
-                                            selectedTripId.value = null
-                                            tripDetailsError.value = null
-                                        },
-                                        onSharedTripClick = { trip ->
-                                            // This won't be called for single trips
-                                        },
-                                        viewModel = tripDetailsViewModel
-                                    )
-                                }
+                                // Unified leg flow for both single and shared trips
+                                SharedTripFlowScreen(
+                                    tripDetails = currentTripDetails,
+                                    onBack = {
+                                        selectedTripId.value = null
+                                        tripDetailsError.value = null
+                                    },
+                                    viewModel = tripDetailsViewModel
+                                )
                             }
                             else -> {
                                 // Show error or empty state

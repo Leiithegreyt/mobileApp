@@ -14,6 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.drivebroom.network.CompletedTrip
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import com.example.drivebroom.ui.components.StatusChip
 import java.text.SimpleDateFormat
 import java.util.*
@@ -357,13 +362,16 @@ fun CompletedTripCard(
             }
             
             // Passengers if available
-            trip.passengers?.let { passengers ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "👥 Passengers: $passengers",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            trip.passengers?.let { passengersRaw ->
+                val names = parsePassengersToNames(passengersRaw)
+                if (names.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "👥 Passengers: ${names.joinToString(", ")}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(12.dp))
@@ -383,6 +391,27 @@ fun CompletedTripCard(
             }
         }
     }
+}
+
+private fun parsePassengersToNames(passengers: String?): List<String> {
+    if (passengers.isNullOrBlank()) return emptyList()
+    // Try array of strings: ["Alice","Bob"]
+    try {
+        val list = Json.decodeFromString<List<String>>(passengers)
+        if (list.isNotEmpty()) return list
+    } catch (_: Exception) {}
+    // Try array of objects with name: [{"name":"Alice"},{"name":"Bob"}]
+    try {
+        val arr = Json.parseToJsonElement(passengers)
+        if (arr is JsonArray) {
+            val names = arr.mapNotNull { el ->
+                (el as? JsonObject)?.get("name")?.jsonPrimitive?.content
+            }
+            if (names.isNotEmpty()) return names
+        }
+    } catch (_: Exception) {}
+    // Fallback: plain string
+    return listOf(passengers)
 }
 
  

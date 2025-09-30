@@ -52,6 +52,12 @@ fun SharedTripFlowScreen(
                android.util.Log.d("SharedTripFlowScreen", "Legs data: ${sharedTripLegs.map { "ID=${it.leg_id}, status=${it.status}" }}")
            }
            
+           // Auto-select the current leg if none is selected yet
+           if (selectedLeg == null && sharedTripLegs.isNotEmpty() && currentLegIndex < sharedTripLegs.size) {
+               selectedLeg = sharedTripLegs[currentLegIndex]
+               android.util.Log.d("SharedTripFlowScreen", "Auto-selected leg: ${selectedLeg?.leg_id}")
+           }
+
            if (selectedLeg != null && currentLegIndex < sharedTripLegs.size) {
                val updatedLeg = sharedTripLegs[currentLegIndex]
                if (updatedLeg.leg_id == selectedLeg?.leg_id) {
@@ -113,16 +119,20 @@ fun SharedTripFlowScreen(
             }
         }
         showSummary -> {
-                TripSummaryScreen(
+            val isShared = (tripDetails.trip_type == "shared")
+            TripSummaryScreen(
                 tripDetails = tripDetails,
                 completedLegs = sharedTripLegs.filter { it.status == "completed" },
                 totalDistance = calculateTotalDistance(sharedTripLegs),
                 totalFuelUsed = calculateTotalFuelUsed(sharedTripLegs),
+                showSubmitButton = isShared,
                 onBack = { showSummary = false },
                 onSubmitLogs = {
-                    // Submit full trip via ViewModel, then navigate back
-                    viewModel.submitFullSharedTrip(tripDetails.id) {
-                        onBack()
+                    if (isShared) {
+                        // Submit full shared trip via ViewModel, then navigate back
+                        viewModel.submitFullSharedTrip(tripDetails.id) {
+                            onBack()
+                        }
                     }
                 }
             )

@@ -16,6 +16,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.drivebroom.network.CompletedTrip
 import com.example.drivebroom.ui.components.StatusChip
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,11 +191,12 @@ fun CompletedTripDetailsScreen(
                                 value = "${trip.totalPassengers} passengers"
                             )
                         } else {
-                            trip.passengers?.let { passengers ->
+                            val passengerNames = parsePassengersToNames(trip.passengers)
+                            if (passengerNames.isNotEmpty()) {
                                 TripInfoRow(
                                     icon = Icons.Default.Person,
                                     label = "Passengers",
-                                    value = passengers
+                                    value = passengerNames.joinToString(", ")
                                 )
                             }
                         }
@@ -373,11 +381,40 @@ fun CompletedTripDetailsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onBack,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Back")
+                        }
                     }
                 }
             }
         }
     }
+}
+private fun parsePassengersToNames(passengers: String?): List<String> {
+    if (passengers.isNullOrBlank()) return emptyList()
+    // Try: ["Alice","Bob"]
+    try {
+        val list = Json.decodeFromString<List<String>>(passengers)
+        if (list.isNotEmpty()) return list
+    } catch (_: Exception) {}
+    // Try: [{"name":"Alice"},{"name":"Bob"}]
+    try {
+        val arr = Json.parseToJsonElement(passengers)
+        if (arr is JsonArray) {
+            val names = arr.mapNotNull { el ->
+                if (el is JsonObject && el["name"] != null) el["name"]!!.jsonPrimitive.content else null
+            }
+            if (names.isNotEmpty()) return names
+        }
+    } catch (_: Exception) {}
+    // Fallback: plain string
+    return listOf(passengers)
 }
 
 @Composable
