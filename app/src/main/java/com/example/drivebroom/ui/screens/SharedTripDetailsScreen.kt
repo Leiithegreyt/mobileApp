@@ -31,20 +31,25 @@ import kotlinx.serialization.json.JsonPrimitive
 
 // Helper function to convert 24-hour format to 12-hour format for display
 fun convertTo12Hour(time24Hour: String?): String {
-    if (time24Hour == null) return ""
+    if (time24Hour == null || time24Hour.isBlank()) return "N/A"
+    
+    // Clean the input - remove any extra whitespace
+    val cleanTime = time24Hour.trim()
+    
     return try {
-        val formatter24 = DateTimeFormatter.ofPattern("HH:mm:ss")
-        val time = LocalTime.parse(time24Hour, formatter24)
-        time.format(DateTimeFormatter.ofPattern("hh:mm a"))
+        // Try HH:mm format first (most common from API)
+        val formatter24 = DateTimeFormatter.ofPattern("HH:mm")
+        val time = LocalTime.parse(cleanTime, formatter24)
+        time.format(DateTimeFormatter.ofPattern("h:mm a"))
     } catch (e: Exception) {
-        // If parsing fails, try without seconds
+        // If HH:mm fails, try HH:mm:ss format
         try {
-            val formatter24 = DateTimeFormatter.ofPattern("HH:mm")
-            val time = LocalTime.parse(time24Hour, formatter24)
-            time.format(DateTimeFormatter.ofPattern("hh:mm a"))
+            val formatter24 = DateTimeFormatter.ofPattern("HH:mm:ss")
+            val time = LocalTime.parse(cleanTime, formatter24)
+            time.format(DateTimeFormatter.ofPattern("h:mm a"))
         } catch (e2: Exception) {
             // If all parsing fails, return original string
-            time24Hour
+            cleanTime
         }
     }
 }

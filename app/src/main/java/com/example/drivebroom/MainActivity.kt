@@ -145,7 +145,8 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 // No need to load trip details here - the ViewModel will handle it
                             },
                             isLoading = true,
-                            onRefresh = { driverHomeViewModel.loadData() }
+                            onRefresh = { driverHomeViewModel.loadData() },
+                            navigationViewModel = navigationViewModel
                         )
                     }
                     is DriverHomeUiState.Success -> {
@@ -164,7 +165,8 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                 // No need to load trip details here - the ViewModel will handle it
                             },
                             isLoading = false,
-                            onRefresh = { driverHomeViewModel.loadData() }
+                            onRefresh = { driverHomeViewModel.loadData() },
+                            navigationViewModel = navigationViewModel
                         )
                     }
                     is DriverHomeUiState.Error -> {
@@ -294,6 +296,13 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                         onBack = {
                                             selectedTripId.value = null
                                             tripDetailsError.value = null
+                                        },
+                                        onNavigateToTripLogs = {
+                                            Log.d("MainActivity", "=== TRIP COMPLETION - NAVIGATING TO TRIP LOGS ===")
+                                            selectedTripId.value = null
+                                            tripDetailsError.value = null
+                                            navigationViewModel.navigateToTripLogs.value = true
+                                            Log.d("MainActivity", "navigateToTripLogs set to: ${navigationViewModel.navigateToTripLogs.value}")
                                         },
                                         viewModel = tripDetailsViewModel
                                     )

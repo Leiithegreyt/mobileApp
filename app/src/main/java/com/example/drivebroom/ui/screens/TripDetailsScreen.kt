@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 fun TripDetailsScreen(
     tripDetails: TripDetails,
     onBack: () -> Unit,
+    onNavigateToTripLogs: () -> Unit = {},
     onSharedTripClick: (TripDetails) -> Unit = {},
     viewModel: TripDetailsViewModel? = null
 ) {
@@ -83,7 +84,6 @@ fun TripDetailsScreen(
     var currentLegDestination by remember { mutableStateOf("Isatu Miagao Campus") }
     var showDepartureDialog by remember { mutableStateOf(false) }
     var showArrivalDialog by remember { mutableStateOf(false) }
-    var showNextStopPrompt by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
     var fuelPurchasedInput by remember { mutableStateOf("") }
     var fuelBalanceEndInput by remember { mutableStateOf("") }
@@ -116,7 +116,6 @@ fun TripDetailsScreen(
         lastOdometerArrival = null
         showDepartureDialog = false
         showArrivalDialog = false
-        showNextStopPrompt = false
         showReturnDialog = false
     }
 
@@ -379,40 +378,58 @@ fun TripDetailsScreen(
                     OutlinedTextField(
                         value = currentLegOdometer,
                         onValueChange = { currentLegOdometer = it },
-                        label = { Text("Odometer Start") }
+                        label = { Text("Odometer Start") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = currentLegFuelBalance,
                         onValueChange = { currentLegFuelBalance = it },
-                        label = { Text("Fuel Balance Start (L)") }
+                        label = { Text("Fuel Start (L)") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = currentLegDestination,
                         onValueChange = { currentLegDestination = it },
-                        label = { Text("Departure Location") },
-                        placeholder = { Text("Isatu Miagao Campus") }
+                        label = { Text("Departure Location (Auto-filled)") },
+                        placeholder = { Text("ISATU Miagao Campus") },
+                        modifier = Modifier.fillMaxWidth(),
+                        readOnly = true,
+                        enabled = false
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a")),
+                        onValueChange = { },
+                        label = { Text("Departure Time (hh:mm a)") },
+                        readOnly = true,
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                     if (passengersList.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Passengers (confirm)", fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Column {
-                            passengersList.forEach { name ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = confirmedPassengerSet.contains(name),
-                                        onCheckedChange = { checked ->
-                                            confirmedPassengerSet = if (checked) confirmedPassengerSet + name else confirmedPassengerSet - name
-                                        }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(name, style = MaterialTheme.typography.bodyMedium)
-                                }
+                        Text(
+                            text = "Passengers (${passengersList.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        passengersList.forEach { name ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = confirmedPassengerSet.contains(name),
+                                    onCheckedChange = { checked ->
+                                        confirmedPassengerSet = if (checked) confirmedPassengerSet + name else confirmedPassengerSet - name
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(name, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -482,66 +499,90 @@ fun TripDetailsScreen(
             text = {
                 Column {
                     OutlinedTextField(
-                        value = arrivalLocation,
-                        onValueChange = { }, // Read-only
-                        label = { Text("Arrival Location") },
+                        value = currentArrivalOdometer,
+                        onValueChange = { currentArrivalOdometer = it },
+                        label = { Text("Odometer End") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = run {
+                            // Auto-calculate fuel used when fuel balance end changes
+                            val fuelStart = lastFuelBalanceStart ?: 0.0
+                            val fuelEnd = fuelBalanceEndInput.toDoubleOrNull() ?: 0.0
+                            val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
+                            val calculatedFuelUsed = fuelStart + fuelPurchased - fuelEnd
+                            if (calculatedFuelUsed >= 0) String.format("%.2f", calculatedFuelUsed) else "0.00"
+                        },
+                        onValueChange = { },
+                        label = { Text("Fuel Used (L) - Auto-calculated") },
+                        modifier = Modifier.fillMaxWidth(),
                         readOnly = true,
                         enabled = false
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = currentArrivalOdometer,
-                        onValueChange = { currentArrivalOdometer = it },
-                        label = { Text("Odometer Reading at Arrival") }
+                        value = arrivalLocation,
+                        onValueChange = { },
+                        label = { Text("Arrival Location") },
+                        readOnly = true,
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Arriving at: $arrivalLocation",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
+                    OutlinedTextField(
+                        value = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a")),
+                        onValueChange = { },
+                        label = { Text("Arrival Time (hh:mm a) - Auto-filled") },
+                        readOnly = true,
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    // Show warning if odometer hasn't increased
-                    val lastDepartureOdometer = itinerary.lastOrNull()?.odometerStart
-                    if (lastDepartureOdometer != null && currentArrivalOdometer.isNotBlank()) {
-                        val arrivalOdometer = currentArrivalOdometer.toDoubleOrNull()
-                        if (arrivalOdometer != null) {
-                            if (arrivalOdometer <= lastDepartureOdometer) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "⚠️ Warning: Arrival odometer should be higher than departure odometer (${lastDepartureOdometer})",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            } else {
-                                val distance = arrivalOdometer - lastDepartureOdometer
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "✅ Distance: ${String.format("%.2f", distance)} km",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = fuelBalanceEndInput,
+                        onValueChange = { fuelBalanceEndInput = it },
+                        label = { Text("Fuel Balance End (L)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = fuelPurchasedInput,
+                        onValueChange = { fuelPurchasedInput = it },
+                        label = { Text("Fuel Purchased (L)") },
+                        placeholder = { Text("Enter 0 or leave empty if no fuel purchased") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = "", // Notes
+                        onValueChange = { },
+                        label = { Text("Notes") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                     if (passengersList.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Passengers (dropped)", fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Column {
-                            passengersList.forEach { name ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = droppedPassengerSet.contains(name),
-                                        onCheckedChange = { checked ->
-                                            droppedPassengerSet = if (checked) droppedPassengerSet + name else droppedPassengerSet - name
-                                        }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(name, style = MaterialTheme.typography.bodyMedium)
-                                }
+                        Text(
+                            text = "Passengers (${passengersList.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        passengersList.forEach { name ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = droppedPassengerSet.contains(name),
+                                    onCheckedChange = { checked ->
+                                        droppedPassengerSet = if (checked) droppedPassengerSet + name else droppedPassengerSet - name
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(name, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -568,23 +609,44 @@ fun TripDetailsScreen(
                         tripDetailsViewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
                         // Unified leg arrival for single trip with passenger list
                         val passengersDropped = if (droppedPassengerSet.isNotEmpty()) droppedPassengerSet.toList() else passengersList
-                        val fuelEndForNow = lastFuelBalanceStart ?: 0.0
+                        val fuelEndForNow = fuelBalanceEndInput.toDoubleOrNull() ?: (lastFuelBalanceStart ?: 0.0)
+                        val fuelPurchasedValue = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
+                        val fuelUsedValue = run {
+                            val fuelStart = lastFuelBalanceStart ?: 0.0
+                            val fuelEnd = fuelEndForNow
+                            val fuelPurchased = fuelPurchasedValue
+                            val calculated = fuelStart + fuelPurchased - fuelEnd
+                            if (calculated >= 0) calculated else 0.0
+                        }
+                        
+                        // Debug logging
+                        android.util.Log.d("TripDetailsScreen", "=== ARRIVAL CONFIRMATION DEBUG ===")
+                        android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput: '$fuelBalanceEndInput'")
+                        android.util.Log.d("TripDetailsScreen", "fuelPurchasedInput: '$fuelPurchasedInput'")
+                        android.util.Log.d("TripDetailsScreen", "fuelEndForNow: $fuelEndForNow")
+                        android.util.Log.d("TripDetailsScreen", "fuelPurchasedValue: $fuelPurchasedValue")
+                        android.util.Log.d("TripDetailsScreen", "fuelUsedValue: $fuelUsedValue")
+                        android.util.Log.d("TripDetailsScreen", "lastFuelBalanceStart: $lastFuelBalanceStart")
+                        android.util.Log.d("TripDetailsScreen", "odometerEnd: $odometerEnd")
+                        android.util.Log.d("TripDetailsScreen", "arrivalLocation: '$arrivalLocation'")
                         tripDetailsViewModel.logLegArrival(
                             tripId = trip.id,
                             legId = trip.id,
                             odometerEnd = odometerEnd,
-                            fuelUsed = null,
+                            fuelUsed = fuelUsedValue,
                             fuelEnd = fuelEndForNow,
                             passengersDropped = passengersDropped,
                             arrivalTime = timeForDisplay,
                             arrivalLocation = arrivalLocation,
-                            fuelPurchased = null,
+                            fuelPurchased = fuelPurchasedValue,
                             notes = null
                         )
                         showArrivalDialog = false
-                        showNextStopPrompt = true
                         canArrive = false
+                        canReturn = true // Enable the Complete Trip button
                         currentArrivalOdometer = "" // Clear the input
+                        fuelBalanceEndInput = "" // Clear the fuel balance end input
+                        fuelPurchasedInput = "" // Clear the fuel purchased input
                         droppedPassengerSet = emptySet()
                     } else {
                         val msg = when {
@@ -602,184 +664,38 @@ fun TripDetailsScreen(
         )
     }
 
-    // Next stop prompt
-    if (showNextStopPrompt) {
-        AlertDialog(
-            onDismissRequest = { showNextStopPrompt = false },
-            title = { Text("Another Stop?") },
-            text = { Text("Do you have another stop?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    canArrive = false
-                    showNextStopPrompt = false
-                    showDepartureDialog = true
-                }) { Text("Yes, add another leg") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    canReturn = true
-                    showNextStopPrompt = false
-                }) { Text("No, trip is done") }
-            }
-        )
-    }
 
     // For return dialog, collect signatures for each passenger (now removed, just show details)
 
     if (showReturnDialog) {
-        // Calculate fuel used automatically from the difference
-        val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0 // Default to 0 if no fuel purchased
-        val fuelBalanceEnd = fuelBalanceEndInput.toDoubleOrNull() ?: 0.0
-        val initialBalance = lastFuelBalanceStart ?: 0.0
-        val calculatedFuelUsed = initialBalance + fuelPurchased - fuelBalanceEnd
         AlertDialog(
             onDismissRequest = { showReturnDialog = false },
-            title = { Text("Trip Return Details") },
+            title = { Text("Complete Trip") },
             text = {
                 Column {
-                    OutlinedTextField(
-                        value = fuelPurchasedInput,
-                        onValueChange = { fuelPurchasedInput = it },
-                        label = { Text("Fuel Purchased (L)") },
-                        placeholder = { Text("Enter 0 or leave empty if no fuel purchased") }
+                    Text(
+                        text = "Trip completed successfully!",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Trip Summary:",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = fuelBalanceEndInput,
-                        onValueChange = { fuelBalanceEndInput = it },
-                        label = { Text("Fuel Balance End (L)") }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = odometerArrivalInput,
-                        onValueChange = { odometerArrivalInput = it },
-                        label = { Text("Final Odometer Reading") }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    // Show calculated fuel used for reference
-                    if (fuelBalanceEndInput.isNotBlank()) {
-                        val fuelUsedText = if (fuelPurchasedInput.isNotBlank()) {
-                            "Fuel Used: ${String.format("%.2f", calculatedFuelUsed)} L"
-                        } else {
-                            "Fuel Used: ${String.format("%.2f", calculatedFuelUsed)} L (No fuel purchased)"
-                        }
-                        Text(
-                            text = fuelUsedText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Passenger Details", fontWeight = FontWeight.Bold)
-                    Column {
-                        passengersList.forEachIndexed { idx, passengerName ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                elevation = CardDefaults.cardElevation(1.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(passengerName, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                    }
-                    Text("All passengers: ${passengersList.size}")
+                    Text("Passengers: ${passengersList.size}")
+                    Text("Destination: ${trip.destination ?: "N/A"}")
+                    Text("Total Distance: ${String.format("%.2f", totalDistanceTravelled)} km")
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0 // Default to 0 if empty
-                    val fuelBalanceEnd = fuelBalanceEndInput.toDoubleOrNull()
-                    val odometerArrival = odometerArrivalInput.toDoubleOrNull()
-                    if (
-                        fuelBalanceEnd != null &&
-                        odometerArrival != null &&
-                        lastFuelBalanceStart != null
-                    ) {
-                        val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
-                            passengersList.map { name ->
-                                com.example.drivebroom.network.                                PassengerDetail(
-                                    name = name,
-                                    destination = trip.destination ?: "N/A",
-                                    signature = ""
-                                )
-                            }
-                        } else {
-                            listOf(
-                                com.example.drivebroom.network.PassengerDetail(
-                                    name = trip.passenger_email ?: "",
-                                    destination = trip.destination ?: "N/A",
-                                    signature = ""
-                                )
-                            )
-                        }
-                        // Create single leg with all three odometer readings
-                        val firstLeg = itinerary.firstOrNull()
-                        val arrivalLeg = itinerary.firstOrNull { leg -> leg.odometerEnd != null }
-                        
-                        // Debug logging
-                        android.util.Log.d("TripDetailsScreen", "=== RETURN DEBUG ===")
-                        android.util.Log.d("TripDetailsScreen", "Itinerary size: ${itinerary.size}")
-                        android.util.Log.d("TripDetailsScreen", "First leg: $firstLeg")
-                        android.util.Log.d("TripDetailsScreen", "Arrival leg: $arrivalLeg")
-                        android.util.Log.d("TripDetailsScreen", "Odometer arrival input: $odometerArrival")
-                        if (firstLeg != null) {
-                            android.util.Log.d("TripDetailsScreen", "First leg odometerStart: ${firstLeg.odometerStart}")
-                        }
-                        
-                        val finalItinerary = if (firstLeg != null && odometerArrival != null) {
-                            // Single leg with start, arrival, and return odometer readings
-                            val legDto = com.example.drivebroom.network.ItineraryLegDto(
-                                odometer_start = firstLeg.odometerStart,     // Start odometer (departure from campus)
-                                odometer = odometerArrival!!,               // Return odometer (back to campus)
-                                odometer_arrival = arrivalLeg?.odometerEnd,  // Arrival odometer (at destination) - NEW FIELD
-                                time_departure = firstLeg.timeDeparture,
-                                departure = firstLeg.departure,             // "Isatu Miagao Campus"
-                                time_arrival = arrivalLeg?.timeArrival ?: LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
-                                arrival = arrivalLeg?.arrival ?: "Isatu Miagao Campus"
-                            )
-                            android.util.Log.d("TripDetailsScreen", "Created leg DTO: $legDto")
-                            listOf(legDto)
-                        } else {
-                            android.util.Log.d("TripDetailsScreen", "Creating empty itinerary - firstLeg: $firstLeg, odometerArrival: $odometerArrival")
-                            // Fallback if no departure leg recorded
-                            emptyList()
-                        }
-                        tripDetailsViewModel.logReturn(
-                            trip.id,
-                            lastFuelBalanceStart!!,
-                            fuelPurchased,
-                            fuelBalanceEnd,
-                            passengerDetailsToSend,
-                            finalItinerary
-                        )
-                        showReturnDialog = false
-                        fuelPurchasedInput = ""
-                        fuelBalanceEndInput = ""
-                        odometerArrivalInput = ""
-                    } else {
-                        val msg = when {
-                            fuelBalanceEnd == null || odometerArrival == null || lastFuelBalanceStart == null -> "Enter fuel balance end and final odometer reading to complete return."
-                            else -> "Invalid return details."
-                        }
-                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }) { Text("Submit") }
+                    // Close dialog and navigate to trip logs
+                    showReturnDialog = false
+                    onNavigateToTripLogs() // Navigate to trip logs
+                }) { Text("OK") }
             },
             dismissButton = {
                 TextButton(onClick = { showReturnDialog = false }) { Text("Cancel") }

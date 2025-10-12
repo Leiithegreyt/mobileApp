@@ -466,14 +466,7 @@ fun SharedTripLegExecutionScreen(
                             }
                         )
                         
-                        // Show departure/arrival locations if available
-                        currentLeg?.departure_location?.let { depLoc ->
-                            Text(
-                                text = "From: $depLoc",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        // Show arrival location if available
                         currentLeg?.arrival_location?.let { arrLoc ->
                             Text(
                                 text = "To: $arrLoc",
@@ -552,42 +545,6 @@ fun SharedTripLegExecutionScreen(
                     }
                 }
                 
-                // Debug info
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(8.dp)
-                    ) {
-                        Text(
-                            text = "Debug Info:",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Leg Status: '${currentLeg?.status}'",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = "Action State: $actionState",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = "Depart Button Enabled: ${(currentLeg?.status == "pending" || currentLeg?.status == "approved") && actionState !is TripActionState.Loading}",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = "Arrive Button Enabled: ${currentLeg?.status == "in_progress" && actionState !is TripActionState.Loading}",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Text(
-                            text = "Complete/Next Button Enabled: ${when (currentLeg?.status) { "arrived", "completed" -> actionState !is TripActionState.Loading; else -> legCompleted && actionState !is TripActionState.Loading }}",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
                 
                 // Action Buttons
                 Row(

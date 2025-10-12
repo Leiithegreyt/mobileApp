@@ -3,6 +3,7 @@ package com.example.drivebroom.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
@@ -33,7 +34,8 @@ fun DriverHomeScreen(
     trips: List<Trip>,
     onTripClick: (Int) -> Unit,
     isLoading: Boolean,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    navigationViewModel: com.example.drivebroom.viewmodel.NavigationViewModel? = null
 ) {
     var showProfile by remember { mutableStateOf(false) }
     var showNextSchedule by remember { mutableStateOf(false) }
@@ -41,6 +43,8 @@ fun DriverHomeScreen(
     var selectedCompletedTrip by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     var showSharedTripDetails by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var isNavigatingToTripLogs by remember { mutableStateOf(false) }
+    
     val context = LocalContext.current
     val viewModel: TripDetailsViewModel = viewModel(
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
@@ -69,7 +73,61 @@ fun DriverHomeScreen(
             notifiedTripIds = notifiedTripIds + newTrips.map { it.id }
         }
     }
-
+    
+    // Handle navigation to trip logs - use a simpler approach
+    LaunchedEffect(navigationViewModel?.navigateToTripLogs?.value) {
+        val shouldNavigate = navigationViewModel?.navigateToTripLogs?.value ?: false
+        android.util.Log.d("DriverHomeScreen", "=== NAVIGATION CHECK: shouldNavigate = $shouldNavigate ===")
+        if (shouldNavigate) {
+            android.util.Log.d("DriverHomeScreen", "=== LOADING COMPLETED TRIPS AND SHOWING TRIP LOGS ===")
+            isNavigatingToTripLogs = true
+            viewModel.loadCompletedTrips()
+            // Add a small delay to show the loading state
+            kotlinx.coroutines.delay(500)
+            showCompletedTrips = true
+            isNavigatingToTripLogs = false
+            navigationViewModel?.navigateToTripLogs?.value = false // Reset flag
+            android.util.Log.d("DriverHomeScreen", "=== TRIP LOGS NAVIGATION COMPLETE ===")
+        }
+    }
+    
+    // Show loading overlay when navigating to trip logs
+    if (isNavigatingToTripLogs) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Loading Trip Logs...",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Please wait while we fetch your completed trips",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+    
     // Date logic for filtering
     val today = remember {
         val cal = Calendar.getInstance()
