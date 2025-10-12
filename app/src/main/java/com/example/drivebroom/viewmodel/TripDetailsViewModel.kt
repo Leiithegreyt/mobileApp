@@ -686,9 +686,9 @@ class TripDetailsViewModel(
                 val odometerStart = currentLeg?.odometer_start ?: 0.0
                 val fuelStart = currentLeg?.fuel_start ?: 0.0
                 val distanceTravelled = odometerEnd - odometerStart
-                // Fuel used should be positive (consumed) or zero (no change)
-                // If fuelEnd > fuelStart, it means fuel was added, so fuel used = 0
-                val fuelUsed = maxOf(0.0, fuelStart - fuelEnd)
+                // Calculate fuel used correctly: fuelStart + fuelPurchased - fuelEnd
+                val fuelPurchasedValue = fuelPurchased ?: 0.0
+                val fuelUsed = fuelStart + fuelPurchasedValue - fuelEnd
                 
                 android.util.Log.d("TripDetailsViewModel", "=== LEG COMPLETION CALCULATION ===")
                 android.util.Log.d("TripDetailsViewModel", "Odometer start: $odometerStart")
@@ -696,9 +696,8 @@ class TripDetailsViewModel(
                 android.util.Log.d("TripDetailsViewModel", "Distance travelled: $distanceTravelled")
                 android.util.Log.d("TripDetailsViewModel", "Fuel start: $fuelStart")
                 android.util.Log.d("TripDetailsViewModel", "Fuel end: $fuelEnd")
-                android.util.Log.d("TripDetailsViewModel", "Raw fuel calculation (fuelStart - fuelEnd): ${fuelStart - fuelEnd}")
-                android.util.Log.d("TripDetailsViewModel", "Fuel used (maxOf 0): $fuelUsed")
-                android.util.Log.d("TripDetailsViewModel", "Fuel added during trip: ${if (fuelEnd > fuelStart) fuelEnd - fuelStart else 0.0}")
+                android.util.Log.d("TripDetailsViewModel", "Fuel purchased: $fuelPurchasedValue")
+                android.util.Log.d("TripDetailsViewModel", "Fuel used calculation (fuelStart + fuelPurchased - fuelEnd): $fuelStart + $fuelPurchasedValue - $fuelEnd = $fuelUsed")
                 
                 val request = com.example.drivebroom.network.LegCompletionRequest(
                     final_odometer = odometerEnd,
@@ -710,7 +709,7 @@ class TripDetailsViewModel(
                 )
                 android.util.Log.d("TripDetailsViewModel", "=== LEG COMPLETION DEBUG ===")
                 android.util.Log.d("TripDetailsViewModel", "Completing leg ID: $legId")
-                android.util.Log.d("TripDetailsViewModel", "Request data: final_odometer=${request.final_odometer}, final_fuel=${request.final_fuel}")
+                android.util.Log.d("TripDetailsViewModel", "Request data: final_odometer=${request.final_odometer}, final_fuel=${request.final_fuel}, fuel_used=${request.fuel_used}, fuel_purchased=${request.fuel_purchased}")
                 
                 val result = repository.completeLeg(safeTripId, legId, request)
                 _actionState.value = result.fold(

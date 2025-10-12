@@ -8,7 +8,7 @@ object AppConfig {
 
     // Toggle manually if BuildConfig isn't available in this context
     // Set to true to use production base URL
-    const val USE_PRODUCTION = false
+    const val USE_PRODUCTION = true
 
     // Active base URL
     val API_BASE_URL: String

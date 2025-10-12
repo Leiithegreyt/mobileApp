@@ -90,6 +90,10 @@ fun TripDetailsScreen(
     var odometerArrivalInput by remember { mutableStateOf("") }
     var currentArrivalOdometer by remember { mutableStateOf("") }
     var lastFuelBalanceStart by remember { mutableStateOf<Double?>(null) }
+    
+    // Store fuel purchased and fuel end values for trip completion
+    var storedFuelPurchased by remember { mutableStateOf(0.0) }
+    var storedFuelBalanceEnd by remember { mutableStateOf(0.0) }
     var tripStarted by remember { mutableStateOf(false) }
     var canArrive by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
@@ -110,6 +114,8 @@ fun TripDetailsScreen(
         odometerArrivalInput = ""
         currentArrivalOdometer = ""
         lastFuelBalanceStart = null
+        storedFuelPurchased = 0.0 // Clear stored fuel purchased
+        storedFuelBalanceEnd = 0.0 // Clear stored fuel balance end
         tripStarted = false
         canArrive = false
         canReturn = false
@@ -149,7 +155,7 @@ fun TripDetailsScreen(
     val formattedRequestDate = try {
         trip.date_of_request?.let { dateStr ->
             val zdt = ZonedDateTime.parse(dateStr)
-            zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
         } ?: "N/A"
     } catch (e: Exception) {
         trip.date_of_request ?: "N/A"
@@ -158,16 +164,16 @@ fun TripDetailsScreen(
     val formattedTravelTime = trip.travel_time?.let { timeStr ->
         try {
             val zdt = ZonedDateTime.parse(timeStr)
-            zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
-        } catch (_: Exception) {
-            try {
+        zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
+    } catch (_: Exception) {
+        try {
                 val lt = LocalTime.parse(timeStr, DateTimeFormatter.ofPattern("HH:mm"))
-                lt.format(DateTimeFormatter.ofPattern("h:mm a"))
-            } catch (_: Exception) {
-                // Fallback to raw string if all parsing fails
+            lt.format(DateTimeFormatter.ofPattern("h:mm a"))
+        } catch (_: Exception) {
+            // Fallback to raw string if all parsing fails
                 timeStr
-            }
-        }
+    }
+    }
     } ?: "N/A"
 
     // Parse passengers: supports ["Alice"], [{"name":"Alice"}], or stringified versions
@@ -415,21 +421,21 @@ fun TripDetailsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        passengersList.forEach { name ->
-                            Row(
+                            passengersList.forEach { name ->
+                                Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = confirmedPassengerSet.contains(name),
-                                    onCheckedChange = { checked ->
-                                        confirmedPassengerSet = if (checked) confirmedPassengerSet + name else confirmedPassengerSet - name
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(name, style = MaterialTheme.typography.bodyMedium)
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = confirmedPassengerSet.contains(name),
+                                        onCheckedChange = { checked ->
+                                            confirmedPassengerSet = if (checked) confirmedPassengerSet + name else confirmedPassengerSet - name
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(name, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -568,21 +574,21 @@ fun TripDetailsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        passengersList.forEach { name ->
-                            Row(
+                            passengersList.forEach { name ->
+                                Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = droppedPassengerSet.contains(name),
-                                    onCheckedChange = { checked ->
-                                        droppedPassengerSet = if (checked) droppedPassengerSet + name else droppedPassengerSet - name
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(name, style = MaterialTheme.typography.bodyMedium)
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = droppedPassengerSet.contains(name),
+                                        onCheckedChange = { checked ->
+                                            droppedPassengerSet = if (checked) droppedPassengerSet + name else droppedPassengerSet - name
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(name, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -611,6 +617,8 @@ fun TripDetailsScreen(
                         val passengersDropped = if (droppedPassengerSet.isNotEmpty()) droppedPassengerSet.toList() else passengersList
                         val fuelEndForNow = fuelBalanceEndInput.toDoubleOrNull() ?: (lastFuelBalanceStart ?: 0.0)
                         val fuelPurchasedValue = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
+                        storedFuelPurchased = fuelPurchasedValue // Store for trip completion
+                        storedFuelBalanceEnd = fuelEndForNow // Store fuel balance end for trip completion
                         val fuelUsedValue = run {
                             val fuelStart = lastFuelBalanceStart ?: 0.0
                             val fuelEnd = fuelEndForNow
@@ -627,6 +635,8 @@ fun TripDetailsScreen(
                         android.util.Log.d("TripDetailsScreen", "fuelPurchasedValue: $fuelPurchasedValue")
                         android.util.Log.d("TripDetailsScreen", "fuelUsedValue: $fuelUsedValue")
                         android.util.Log.d("TripDetailsScreen", "lastFuelBalanceStart: $lastFuelBalanceStart")
+                        android.util.Log.d("TripDetailsScreen", "storedFuelPurchased: $storedFuelPurchased")
+                        android.util.Log.d("TripDetailsScreen", "storedFuelBalanceEnd: $storedFuelBalanceEnd")
                         android.util.Log.d("TripDetailsScreen", "odometerEnd: $odometerEnd")
                         android.util.Log.d("TripDetailsScreen", "arrivalLocation: '$arrivalLocation'")
                         tripDetailsViewModel.logLegArrival(
@@ -692,8 +702,66 @@ fun TripDetailsScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    // Send trip completion data to backend
+                    val fuelPurchased = storedFuelPurchased // Use stored value from arrival
+                    val fuelBalanceEnd = storedFuelBalanceEnd // Use stored value from arrival
+                    val fuelBalanceStart = lastFuelBalanceStart ?: 0.0
+                    
+                    // Debug logging
+                    android.util.Log.d("TripDetailsScreen", "=== TRIP COMPLETION DEBUG ===")
+                    android.util.Log.d("TripDetailsScreen", "fuelBalanceStart: $fuelBalanceStart")
+                    android.util.Log.d("TripDetailsScreen", "fuelPurchased: $fuelPurchased")
+                    android.util.Log.d("TripDetailsScreen", "fuelBalanceEnd: $fuelBalanceEnd")
+                    android.util.Log.d("TripDetailsScreen", "calculated fuelUsed: ${fuelBalanceStart + fuelPurchased - fuelBalanceEnd}")
+                    
+                        val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
+                            passengersList.map { name ->
+                                com.example.drivebroom.network.PassengerDetail(
+                                    name = name,
+                                destination = trip.destination ?: "N/A",
+                                    signature = ""
+                                )
+                            }
+                        } else {
+                            listOf(
+                                com.example.drivebroom.network.PassengerDetail(
+                                    name = trip.passenger_email ?: "",
+                                destination = trip.destination ?: "N/A",
+                                    signature = ""
+                                )
+                            )
+                        }
+                    
+                    // Create itinerary for trip completion
+                        val firstLeg = itinerary.firstOrNull()
+                        val arrivalLeg = itinerary.firstOrNull { leg -> leg.odometerEnd != null }
+                    val finalItinerary = if (firstLeg != null) {
+                            val legDto = com.example.drivebroom.network.ItineraryLegDto(
+                            odometer_start = firstLeg.odometerStart,
+                            odometer = arrivalLeg?.odometerEnd ?: firstLeg.odometerStart,
+                            odometer_arrival = arrivalLeg?.odometerEnd,
+                                time_departure = firstLeg.timeDeparture,
+                            departure = firstLeg.departure,
+                                time_arrival = arrivalLeg?.timeArrival ?: LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
+                            arrival = arrivalLeg?.arrival ?: trip.destination ?: "N/A"
+                            )
+                            listOf(legDto)
+                        } else {
+                            emptyList()
+                        }
+                    
+                    // Send completion data to backend
+                        tripDetailsViewModel.logReturn(
+                            trip.id,
+                        fuelBalanceStart,
+                            fuelPurchased,
+                            fuelBalanceEnd,
+                            passengerDetailsToSend,
+                            finalItinerary
+                        )
+                    
                     // Close dialog and navigate to trip logs
-                    showReturnDialog = false
+                        showReturnDialog = false
                     onNavigateToTripLogs() // Navigate to trip logs
                 }) { Text("OK") }
             },
