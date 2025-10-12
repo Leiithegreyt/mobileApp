@@ -34,6 +34,12 @@ class DriverHomeViewModel(private val apiService: ApiService) : ViewModel() {
                 
                 trips.forEachIndexed { index, trip ->
                     Log.d("DriverHomeViewModel", "Trip $index: id=${trip.id}, destination=${trip.destination}, date=${trip.travel_date}, status=${trip.status}, type=${trip.trip_type}")
+                    // Additional debugging for date and trip type
+                    Log.d("DriverHomeViewModel", "  - Raw travel_date: '${trip.travel_date}'")
+                    Log.d("DriverHomeViewModel", "  - trip_type: '${trip.trip_type}'")
+                    Log.d("DriverHomeViewModel", "  - is_shared_trip: ${trip.is_shared_trip}")
+                    Log.d("DriverHomeViewModel", "  - shared_trip_id: ${trip.shared_trip_id}")
+                    Log.d("DriverHomeViewModel", "  - key: '${trip.key}'")
                 }
                 
                 // Log counts of shared vs single for quick diagnostics

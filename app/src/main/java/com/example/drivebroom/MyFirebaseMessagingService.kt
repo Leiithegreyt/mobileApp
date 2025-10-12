@@ -28,21 +28,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        try {
-            Log.d("FCM", "New FCM token: $token")
-            // Save locally
-            val tokenManager = TokenManager(applicationContext)
-            // Do not overwrite API token; store FCM token separately if supported
-            // Attempt immediate backend update if user is logged in
-            val networkClient = NetworkClient(tokenManager)
-            val repo = DriverRepository(networkClient.apiService)
-            // Fire and forget
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try { repo.updateFcmToken(token) } catch (_: Exception) {}
-            }
-        } catch (e: Exception) {
-            Log.e("FCM", "Failed to process new token", e)
-        }
+        // Keep it simple: log token; Login flow already updates token with backend
+        Log.d("FCM", "New FCM token: $token")
     }
 
     private fun sendNotification(title: String?, messageBody: String?, tripId: String?) {
@@ -60,7 +47,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             notificationManager.createNotificationChannel(channel)
         }
         val notificationBuilder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title ?: "New Assignment")
             .setContentText(messageBody ?: "You have a new trip assignment.")
             .setAutoCancel(true)

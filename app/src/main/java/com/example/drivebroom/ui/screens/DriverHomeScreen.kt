@@ -62,7 +62,7 @@ fun DriverHomeScreen(
     LaunchedEffect(trips) {
         val newTrips = trips.filter { it.status?.equals("approved", ignoreCase = true) == true && !notifiedTripIds.contains(it.id) }
         if (newTrips.isNotEmpty()) {
-            val notifier = TripNotificationManager(LocalContext.current)
+            val notifier = TripNotificationManager(context)
             newTrips.forEach { t ->
                 notifier.showTripAssignedNotification(tripId = t.id, destination = t.destination ?: "New Trip")
             }
@@ -113,6 +113,9 @@ fun DriverHomeScreen(
         val d = trip.travel_date?.let { parseDateOrNull(it) }
         if (d == null) return@filter true // If unknown format, do not hide it
         !d.before(today) && d.before(Date(today.time + millisInDay))
+    }.sortedBy { trip ->
+        // Sort by date (earliest first)
+        trip.travel_date?.let { parseDateOrNull(it) } ?: Date(Long.MAX_VALUE)
     }
 
     val nextTrips = trips.filter { trip ->
@@ -128,6 +131,9 @@ fun DriverHomeScreen(
         val isAfterToday = d.after(Date(today.time + millisInDay - 1))
         android.util.Log.d("DriverHomeScreen", "Trip date check: id=${trip.id}, destination=${trip.destination}, date=${trip.travel_date}, parsed=${d}, isAfterToday=${isAfterToday}")
         isAfterToday
+    }.sortedBy { trip ->
+        // Sort by date (earliest first)
+        trip.travel_date?.let { parseDateOrNull(it) } ?: Date(Long.MAX_VALUE)
     }
 
     // Debug logging for trip filtering
@@ -222,8 +228,8 @@ fun DriverHomeScreen(
             ) {
                 item {
                     Column(modifier = Modifier.padding(bottom = 24.dp)) {
-                        Text(
-                            text = "University Trip Ticket – Driver Dashboard",
+                    Text(
+                            text = "Driver's Trip Ticket",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -240,7 +246,7 @@ fun DriverHomeScreen(
                             .fillMaxWidth()
                             .padding(bottom = 16.dp)
                     ) {
-                        Text("View Completed Trips")
+                        Text("Trip Logs")
                     }
                 }
                 item {
@@ -409,7 +415,17 @@ fun TripCard(
     
     // Format travel_date and travel_time
     val formattedTravelDate = trip.travel_date?.let { formatDateOnly(it) } ?: "-"
-    val formattedTravelTime = trip.travel_time?.let { formatTimeOnly(it) } ?: "-"
+    val formattedTravelTime = when {
+        !trip.travel_time.isNullOrBlank() -> {
+            val t = trip.travel_time!!
+            if (t.startsWith("00:00")) "-" else formatTimeOnly(t)
+        }
+        !trip.travel_date.isNullOrBlank() && trip.travel_date!!.contains('T') -> {
+            val dt = trip.travel_date!!
+            if (dt.substringAfter('T').startsWith("00:00")) "-" else formatTimeOnly(dt)
+        }
+        else -> "-"
+    }
     val isCompleted = trip.status?.lowercase() == "completed"
     Card(
         onClick = onClick,
@@ -448,13 +464,22 @@ fun TripCard(
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    LabelValue(label = "Purpose", value = trip.purpose ?: "-")
                     LabelValue(label = "Requested By", value = trip.requestedBy ?: "-")
                     val isShared =
                         (trip.trip_type?.equals("shared", ignoreCase = true) == true) ||
                         (trip.key?.startsWith("shared_", ignoreCase = true) == true) ||
                         (trip.is_shared_trip == 1) ||
                         (trip.shared_trip_id != null)
+                    
+                    // Debug logging for trip type detection
+                    android.util.Log.d("TripCard", "=== TRIP TYPE DETECTION DEBUG ===")
+                    android.util.Log.d("TripCard", "Trip ID: ${trip.id}, Destination: ${trip.destination}")
+                    android.util.Log.d("TripCard", "trip_type: '${trip.trip_type}'")
+                    android.util.Log.d("TripCard", "key: '${trip.key}'")
+                    android.util.Log.d("TripCard", "is_shared_trip: ${trip.is_shared_trip}")
+                    android.util.Log.d("TripCard", "shared_trip_id: ${trip.shared_trip_id}")
+                    android.util.Log.d("TripCard", "isShared result: $isShared")
+                    
                     if (isShared) {
                         AssistChip(
                             onClick = {},
@@ -504,6 +529,55 @@ private fun formatDateOnly(dateTimeStr: String): String {
                 val fmt = SimpleDateFormat(p, Locale.getDefault())
                 fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
                 parsed = fmt.parse(dateTimeStr)
+                if (parsed != null) {
+                    android.util.Log.d("formatDateOnly", "Successfully parsed '$dateTimeStr' with pattern '$p' -> $parsed")
+                    break
+                }
+            } catch (e: Exception) {
+                android.util.Log.d("formatDateOnly", "Failed to parse '$dateTimeStr' with pattern '$p': ${e.message}")
+            }
+        }
+        parsed
+    } catch (e: Exception) {
+        android.util.Log.e("formatDateOnly", "Error parsing '$dateTimeStr': ${e.message}")
+        null 
+    }
+    val result = d?.let { outputFormat.format(it) } ?: dateTimeStr
+    android.util.Log.d("formatDateOnly", "Input: '$dateTimeStr' -> Output: '$result'")
+    return result
+}
+
+private fun formatTimeOnly(dateTimeStr: String): String {
+    val outputFormat = SimpleDateFormat("h:mm a", Locale.getDefault()).apply {
+        timeZone = java.util.TimeZone.getTimeZone("UTC")
+    }
+    val normalized = dateTimeStr.trim().let { if (it.endsWith('z')) it.dropLast(1) + 'Z' else it }
+    val d = try {
+        val patterns = listOf(
+            // Full datetime variants
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd HH:mm:ss",
+            // Time-only variants
+            "HH:mm:ss.SSSSSSSS'Z'",
+            "HH:mm:ss.SSSSSS'Z'",
+            "HH:mm:ss.SSS'Z'",
+            "HH:mm:ss'Z'",
+            "HH:mm:ss.SSSSSSSS",
+            "HH:mm:ss.SSSSSS",
+            "HH:mm:ss.SSS",
+            "HH:mm:ss"
+        )
+        var parsed: Date? = null
+        for (p in patterns) {
+            try {
+                val fmt = SimpleDateFormat(p, Locale.getDefault())
+                fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                parsed = fmt.parse(normalized)
                 if (parsed != null) break
             } catch (_: Exception) {}
         }
@@ -511,28 +585,3 @@ private fun formatDateOnly(dateTimeStr: String): String {
     } catch (_: Exception) { null }
     return d?.let { outputFormat.format(it) } ?: dateTimeStr
 }
-
-private fun formatTimeOnly(dateTimeStr: String): String {
-        val outputFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
-    val d = try {
-        val patterns = listOf(
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd"
-        )
-        var parsed: Date? = null
-        for (p in patterns) {
-            try {
-                val fmt = SimpleDateFormat(p, Locale.getDefault())
-                fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                parsed = fmt.parse(dateTimeStr)
-                if (parsed != null) break
-            } catch (_: Exception) {}
-        }
-        parsed
-    } catch (_: Exception) { null }
-    return d?.let { outputFormat.format(it) } ?: dateTimeStr
-} 

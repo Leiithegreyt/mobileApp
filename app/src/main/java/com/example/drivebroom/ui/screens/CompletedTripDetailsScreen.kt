@@ -7,6 +7,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Info
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -152,14 +156,38 @@ fun CompletedTripDetailsScreen(
                             modifier = Modifier.padding(bottom = 12.dp)
                         )
                         
-                        // Date and Time
+                        // Date and Time (12-hour format, friendly date)
+                        val friendlyDate = when {
+                            trip.formattedTravelDate != null -> trip.formattedTravelDate
+                            !trip.travelDate.isNullOrBlank() -> {
+                                try {
+                                    ZonedDateTime.parse(trip.travelDate).format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+                                } catch (_: Exception) {
+                                    try {
+                                        LocalDate.parse(trip.travelDate, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                                            .format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+                                    } catch (_: Exception) { trip.travelDate }
+                                }
+                            }
+                            else -> "Not specified"
+                        }
                         TripInfoRow(
                             icon = Icons.Default.Info,
                             label = "Travel Date",
-                            value = trip.formattedTravelDate ?: trip.travelDate ?: "Not specified"
+                            value = friendlyDate ?: "Not specified"
                         )
-                        
-                        trip.travelTime?.let { time ->
+
+                        val friendlyTime = trip.travelTime?.let { t ->
+                            try {
+                                ZonedDateTime.parse(t).format(DateTimeFormatter.ofPattern("h:mm a"))
+                            } catch (_: Exception) {
+                                try {
+                                    LocalTime.parse(t, DateTimeFormatter.ofPattern("HH:mm[:ss]"))
+                                        .format(DateTimeFormatter.ofPattern("h:mm a"))
+                                } catch (_: Exception) { t }
+                            }
+                        }
+                        friendlyTime?.let { time ->
                             TripInfoRow(
                                 icon = Icons.Default.Info,
                                 label = "Travel Time",

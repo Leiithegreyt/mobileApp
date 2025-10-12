@@ -39,12 +39,14 @@ fun TripSummaryScreen(
         tripDetails.travel_date
     }
 
-    val formattedTravelTime = try {
-        val zdt = java.time.ZonedDateTime.parse(tripDetails.travel_time)
-        zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
-    } catch (e: Exception) {
-        tripDetails.travel_time
-    }
+    val formattedTravelTime = tripDetails.travel_time?.let { timeStr ->
+        try {
+            val zdt = java.time.ZonedDateTime.parse(timeStr)
+            zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
+        } catch (e: Exception) {
+            timeStr
+        }
+    } ?: "N/A"
 
     // Calculate statistics
     val totalStops = completedLegs.size

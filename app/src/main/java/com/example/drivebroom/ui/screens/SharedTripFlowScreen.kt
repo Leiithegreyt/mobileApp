@@ -41,6 +41,24 @@ fun SharedTripFlowScreen(
     
     val coroutineScope = rememberCoroutineScope()
     
+    // Helper functions for calculations
+    fun calculateTotalDistance(legs: List<SharedTripLeg>): Double {
+        return legs.sumOf { leg ->
+            val start = leg.odometer_start ?: 0.0
+            val end = leg.odometer_end ?: start
+            end - start
+        }
+    }
+
+    fun calculateTotalFuelUsed(legs: List<SharedTripLeg>): Double {
+        return legs.sumOf { leg ->
+            val start = leg.fuel_start ?: 0.0
+            val end = leg.fuel_end ?: start
+            val purchased = leg.fuel_purchased ?: 0.0
+            start + purchased - end
+        }
+    }
+    
        // Update selectedLeg when leg data changes (e.g., after departure/arrival/completion)
        LaunchedEffect(sharedTripLegs, currentLegIndex) {
            android.util.Log.d("SharedTripFlowScreen", "=== LEG DATA CHANGE DEBUG ===")
@@ -52,25 +70,32 @@ fun SharedTripFlowScreen(
                android.util.Log.d("SharedTripFlowScreen", "Legs data: ${sharedTripLegs.map { "ID=${it.leg_id}, status=${it.status}" }}")
            }
            
-           // Auto-select the current leg if none is selected yet
-           if (selectedLeg == null && sharedTripLegs.isNotEmpty() && currentLegIndex < sharedTripLegs.size) {
-               selectedLeg = sharedTripLegs[currentLegIndex]
-               android.util.Log.d("SharedTripFlowScreen", "Auto-selected leg: ${selectedLeg?.leg_id}")
-           }
+           // Don't auto-select - let user click "Begin First Leg" button
+           // Removed auto-selection to prevent immediate popup of execution screen
 
-           if (selectedLeg != null && currentLegIndex < sharedTripLegs.size) {
-               val updatedLeg = sharedTripLegs[currentLegIndex]
-               if (updatedLeg.leg_id == selectedLeg?.leg_id) {
+           val currentSelectedLeg = selectedLeg
+           if (currentSelectedLeg != null && sharedTripLegs.isNotEmpty()) {
+               // Find the leg with matching ID in the updated legs list
+               val matchingLeg = sharedTripLegs.find { it.leg_id == currentSelectedLeg.leg_id }
+               if (matchingLeg != null) {
                    android.util.Log.d("SharedTripFlowScreen", "=== UPDATING SELECTED LEG ===")
-                   android.util.Log.d("SharedTripFlowScreen", "Old status: ${selectedLeg?.status}")
-                   android.util.Log.d("SharedTripFlowScreen", "New status: ${updatedLeg.status}")
-                   selectedLeg = updatedLeg
+                   android.util.Log.d("SharedTripFlowScreen", "Old status: ${currentSelectedLeg.status}")
+                   android.util.Log.d("SharedTripFlowScreen", "New status: ${matchingLeg.status}")
+                   selectedLeg = matchingLeg
+                   
+                   // Also update the currentLegIndex to match the selected leg
+                   val newIndex = sharedTripLegs.indexOfFirst { it.leg_id == matchingLeg.leg_id }
+                   if (newIndex >= 0 && newIndex != currentLegIndex) {
+                       android.util.Log.d("SharedTripFlowScreen", "Updating currentLegIndex from $currentLegIndex to $newIndex to match selected leg")
+                       viewModel.setCurrentLegIndex(newIndex)
+                   }
+                   
                    android.util.Log.d("SharedTripFlowScreen", "selectedLeg updated successfully")
                } else {
-                   android.util.Log.d("SharedTripFlowScreen", "Leg ID mismatch - selectedLeg: ${selectedLeg?.leg_id}, updatedLeg: ${updatedLeg.leg_id}")
+                   android.util.Log.d("SharedTripFlowScreen", "Selected leg ${currentSelectedLeg.leg_id} not found in updated legs list")
                }
            } else {
-               android.util.Log.d("SharedTripFlowScreen", "Cannot update selectedLeg - selectedLeg: ${selectedLeg?.leg_id}, currentLegIndex: $currentLegIndex, sharedTripLegs.size: ${sharedTripLegs.size}")
+               android.util.Log.d("SharedTripFlowScreen", "Cannot update selectedLeg - selectedLeg: ${currentSelectedLeg?.leg_id}, sharedTripLegs.size: ${sharedTripLegs.size}")
            }
        }
 
@@ -166,13 +191,20 @@ fun SharedTripFlowScreen(
                         currentLegIndex = currentLegIndex,
                         totalLegs = sharedTripLegs.size,
                         sharedTripLegs = sharedTripLegs,
-                        onBack = onBack, // Back button goes to trip list
+                        onBack = { 
+                            // Reset action state before going back to prevent button disabled issue
+                            viewModel.resetActionState()
+                            onBack() 
+                        }, // Back button goes to trip list
                         onLegList = { 
+                            // Reset action state before going back to leg selection
+                            viewModel.resetActionState()
                             selectedLeg = null // Clear selected leg to go back to leg selection
                         }, // Leg List button goes to leg selection
                         onRefresh = {
-                            // Force refresh shared trip data
+                            // Force refresh shared trip data and reset action state
                             android.util.Log.d("SharedTripFlowScreen", "=== REFRESH REQUESTED ===")
+                            viewModel.resetActionState() // Reset action state to ensure buttons are enabled
                             viewModel.forceRefreshSharedTripData(tripDetails.id)
                         },
                         onLegDeparture = { legId, odometerStart, fuelStart, passengersConfirmed, depTime, depLoc, overrideReason ->
@@ -232,22 +264,5 @@ fun SharedTripFlowScreen(
                 }
             }
         }
-    }
-}
-
-private fun calculateTotalDistance(legs: List<SharedTripLeg>): Double {
-    return legs.sumOf { leg ->
-        val start = leg.odometer_start ?: 0.0
-        val end = leg.odometer_end ?: start
-        end - start
-    }
-}
-
-private fun calculateTotalFuelUsed(legs: List<SharedTripLeg>): Double {
-    return legs.sumOf { leg ->
-        val start = leg.fuel_start ?: 0.0
-        val end = leg.fuel_end ?: start
-        val purchased = leg.fuel_purchased ?: 0.0
-        start + purchased - end
     }
 }

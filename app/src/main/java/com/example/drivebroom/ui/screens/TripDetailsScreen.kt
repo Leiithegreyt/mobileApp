@@ -8,6 +8,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import com.example.drivebroom.network.TripDetails
@@ -139,59 +143,103 @@ fun TripDetailsScreen(
             val ld = java.time.LocalDate.parse(trip.travel_date, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
             ld.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
         } catch (_: Exception) {
-            trip.travel_date
+        trip.travel_date
         }
     }
 
     val formattedRequestDate = try {
-        val zdt = ZonedDateTime.parse(trip.date_of_request)
-        zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        trip.date_of_request?.let { dateStr ->
+            val zdt = ZonedDateTime.parse(dateStr)
+            zdt.format(DateTimeFormatter.ofPattern("MMM dd, yyyy"))
+        } ?: "N/A"
     } catch (e: Exception) {
-        trip.date_of_request
+        trip.date_of_request ?: "N/A"
     }
 
-    val formattedTravelTime = try {
-        val zdt = ZonedDateTime.parse(trip.travel_time)
-        zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
-    } catch (_: Exception) {
+    val formattedTravelTime = trip.travel_time?.let { timeStr ->
         try {
-            val lt = LocalTime.parse(trip.travel_time, DateTimeFormatter.ofPattern("HH:mm"))
-            lt.format(DateTimeFormatter.ofPattern("h:mm a"))
+            val zdt = ZonedDateTime.parse(timeStr)
+            zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
         } catch (_: Exception) {
-            // Fallback to raw string if all parsing fails
-            trip.travel_time
+            try {
+                val lt = LocalTime.parse(timeStr, DateTimeFormatter.ofPattern("HH:mm"))
+                lt.format(DateTimeFormatter.ofPattern("h:mm a"))
+            } catch (_: Exception) {
+                // Fallback to raw string if all parsing fails
+                timeStr
+            }
         }
-    }
+    } ?: "N/A"
 
     // Parse passengers: supports ["Alice"], [{"name":"Alice"}], or stringified versions
     val passengersList: List<String> = try {
         val elem = trip.passengers
+        android.util.Log.d("TripDetailsScreen", "=== PASSENGER PARSING DEBUG ===")
+        android.util.Log.d("TripDetailsScreen", "Raw passengers element: $elem")
+        android.util.Log.d("TripDetailsScreen", "Element is null: ${elem == null}")
+        android.util.Log.d("TripDetailsScreen", "Element isJsonArray: ${elem?.isJsonArray}")
+        android.util.Log.d("TripDetailsScreen", "Element isJsonPrimitive: ${elem?.isJsonPrimitive}")
+        
         when {
-            elem == null -> emptyList()
+            elem == null -> {
+                android.util.Log.d("TripDetailsScreen", "Element is null, returning empty list")
+                emptyList()
+            }
             elem.isJsonArray -> {
-                elem.asJsonArray.mapNotNull { jsonEl ->
+                android.util.Log.d("TripDetailsScreen", "Parsing as JsonArray")
+                val result = elem.asJsonArray.mapNotNull { jsonEl ->
                     if (jsonEl.isJsonPrimitive && jsonEl.asJsonPrimitive.isString) jsonEl.asString
                     else if (jsonEl.isJsonObject && jsonEl.asJsonObject.has("name")) jsonEl.asJsonObject.get("name").asString
                     else null
                 }
+                android.util.Log.d("TripDetailsScreen", "JsonArray result: $result")
+                result
             }
             elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
                 val raw = elem.asString
+                android.util.Log.d("TripDetailsScreen", "Parsing as JsonPrimitive string: $raw")
                 var parsed: List<String> = emptyList()
-                // Try list of objects with name
+                // Try list of objects with name (handle null values)
                 try {
-                    val objects = Json.decodeFromString<List<Map<String, String>>>(raw)
-                    val names = objects.mapNotNull { it["name"] }
-                    if (names.isNotEmpty()) parsed = names
-                } catch (_: Exception) {}
+                    val jsonArray = Json.parseToJsonElement(raw)
+                    if (jsonArray is JsonArray) {
+                        val names = jsonArray.mapNotNull { jsonEl ->
+                            if (jsonEl is JsonObject && jsonEl["name"] != null) {
+                                val nameElement = jsonEl["name"]!!
+                                if (nameElement is kotlinx.serialization.json.JsonPrimitive) {
+                                    nameElement.content
+                                } else null
+                            } else null
+                        }
+                        if (names.isNotEmpty()) parsed = names
+                        android.util.Log.d("TripDetailsScreen", "Parsed names from objects: $parsed")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.d("TripDetailsScreen", "Failed to parse as objects: ${e.message}")
+                }
                 if (parsed.isEmpty()) {
-                    try { parsed = Json.decodeFromString<List<String>>(raw) } catch (_: Exception) { parsed = emptyList() }
+                    try { 
+                        parsed = Json.decodeFromString<List<String>>(raw)
+                        android.util.Log.d("TripDetailsScreen", "Parsed as string list: $parsed")
+                    } catch (e: Exception) { 
+                        android.util.Log.d("TripDetailsScreen", "Failed to parse as string list: ${e.message}")
+                        parsed = emptyList() 
+                    }
                 }
                 parsed
             }
-            else -> emptyList()
+            else -> {
+                android.util.Log.d("TripDetailsScreen", "Unknown element type, returning empty list")
+                emptyList()
+            }
         }
-    } catch (_: Exception) { emptyList() }
+    } catch (e: Exception) {
+        android.util.Log.e("TripDetailsScreen", "Exception in passenger parsing: ${e.message}")
+        emptyList()
+    }
+    
+    android.util.Log.d("TripDetailsScreen", "Final parsed passengers: $passengersList")
+    android.util.Log.d("TripDetailsScreen", "Passenger count: ${passengersList.size}")
 
     Scaffold(
         topBar = {
@@ -218,14 +266,14 @@ fun TripDetailsScreen(
                 trip.vehicle?.let { vehicle ->
                     Text("Vehicle: ${vehicle.plateNumber}", style = MaterialTheme.typography.bodyMedium)
                 }
-                Text("Destination: ${trip.destination}", style = MaterialTheme.typography.bodyMedium)
+                Text("Destination: ${trip.destination ?: "N/A"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Purpose: ${trip.purpose ?: "-"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Date/Time: $formattedTravelDate, $formattedTravelTime", style = MaterialTheme.typography.bodyMedium)
                 Text("Total Distance Travelled: ${String.format("%.2f", totalDistanceTravelled)} km", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Divider(Modifier.padding(vertical = 12.dp))
 
                 // Passengers
-                Text("Authorized Passenger(s):", fontWeight = FontWeight.Bold)
+                Text("Authorized Passenger(s): ${passengersList.size}", fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Row(
                     Modifier
@@ -427,7 +475,7 @@ fun TripDetailsScreen(
     // Arrival dialog
     if (showArrivalDialog) {
         // Auto-fill arrival location from trip destination
-        val arrivalLocation = trip.destination ?: ""
+        val arrivalLocation = trip.destination ?: "N/A"
         AlertDialog(
             onDismissRequest = { showArrivalDialog = false },
             title = { Text("Arrival Details") },
@@ -665,9 +713,9 @@ fun TripDetailsScreen(
                     ) {
                         val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
                             passengersList.map { name ->
-                                com.example.drivebroom.network.PassengerDetail(
+                                com.example.drivebroom.network.                                PassengerDetail(
                                     name = name,
-                                    destination = trip.destination,
+                                    destination = trip.destination ?: "N/A",
                                     signature = ""
                                 )
                             }
@@ -675,7 +723,7 @@ fun TripDetailsScreen(
                             listOf(
                                 com.example.drivebroom.network.PassengerDetail(
                                     name = trip.passenger_email ?: "",
-                                    destination = trip.destination,
+                                    destination = trip.destination ?: "N/A",
                                     signature = ""
                                 )
                             )

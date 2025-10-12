@@ -67,7 +67,7 @@ interface ApiService {
     ): retrofit2.Response<Unit>
 
     @GET("trips/{tripId}/legs")
-    suspend fun getTripLegs(@Path("tripId") tripId: Int): List<SharedTripLeg>
+    suspend fun getTripLegs(@Path("tripId") tripId: Int): List<RawSharedTripLeg>
 
     // Finalize full trip (single or shared) via unified endpoint
     @POST("trips/{tripId}/submit")
@@ -118,11 +118,11 @@ data class TripDetails(
     val status: String,
     val travel_date: String,
     val passenger_email: String? = null,
-    val date_of_request: String,
-    val travel_time: String,
-    val destination: String,
+    val date_of_request: String? = null, // Made nullable to handle API responses without this field
+    val travel_time: String? = null, // Made nullable to handle API responses without this field
+    val destination: String? = null, // Made nullable to handle API responses without this field
     val purpose: String? = null,
-    val passengers: com.google.gson.JsonElement,
+    val passengers: com.google.gson.JsonElement? = null, // Made nullable to handle API responses without this field
     val vehicle: Vehicle?,
     val trip_type: String? = "single", // "single" or "shared"
     val stops: List<TripStop>? = null, // Legacy stops
@@ -238,7 +238,8 @@ data class SharedTripLeg(
     val stop_id: Int,
     val team_name: String,
     val destination: String,
-    val passengers: List<String>,
+    val purpose: String? = null, // Purpose for this specific leg
+    val passengers: List<String>?,
     val odometer_start: Double?,
     val odometer_end: Double?,
     val fuel_start: Double?,
@@ -251,6 +252,28 @@ data class SharedTripLeg(
     val departure_location: String? = null,
     val arrival_location: String? = null,
     val status: String // "pending", "in_progress", "completed"
+)
+
+// Raw DTO to handle backend returning passengers as objects
+data class RawSharedTripLeg(
+    val leg_id: Int,
+    val stop_id: Int,
+    val team_name: String,
+    val destination: String,
+    val purpose: String? = null,
+    val passengers: com.google.gson.JsonElement?,
+    val odometer_start: Double?,
+    val odometer_end: Double?,
+    val fuel_start: Double?,
+    val fuel_end: Double?,
+    val fuel_used: Double?,
+    val fuel_purchased: Double?,
+    val notes: String?,
+    val departure_time: String?,
+    val arrival_time: String?,
+    val departure_location: String? = null,
+    val arrival_location: String? = null,
+    val status: String
 )
 
 // API endpoints for shared trip leg execution

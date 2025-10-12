@@ -16,8 +16,30 @@ import android.util.Log
 import okio.Buffer
 import okhttp3.Response
 import okhttp3.Interceptor
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLSocketFactory
 
 class NetworkClient(private val tokenManager: TokenManager) {
+    
+    // TEMPORARY: Trust all SSL certificates for production domain
+    private fun getUnsafeOkHttpClient(): OkHttpClient.Builder {
+        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        })
+
+        val sslContext = SSLContext.getInstance("SSL")
+        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+        val sslSocketFactory: SSLSocketFactory = sslContext.socketFactory
+
+        return OkHttpClient.Builder()
+            .sslSocketFactory(sslSocketFactory, trustAllCerts[0] as X509TrustManager)
+            .hostnameVerifier { _, _ -> true }
+    }
     
     // Global 401 error handler
     private val authErrorHandler = Interceptor { chain ->
@@ -32,7 +54,7 @@ class NetworkClient(private val tokenManager: TokenManager) {
         response
     }
     
-    private val okHttpClient = OkHttpClient.Builder()
+    private val okHttpClient = getUnsafeOkHttpClient()
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         })
@@ -123,6 +145,13 @@ class NetworkClient(private val tokenManager: TokenManager) {
                 GsonBuilder()
                     .setLenient()
                     .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                    // Handle Trip objects with string IDs like "shared_2"
+                    .registerTypeAdapter(Trip::class.java, TripDeserializer())
+                    // Coerce passengers objects to string names for legs endpoint
+                    .registerTypeAdapter(
+                        java.lang.reflect.Type::class.java,
+                        com.google.gson.JsonDeserializer { json, typeOfT, _ -> json }
+                    )
                     .create()
             )
         )

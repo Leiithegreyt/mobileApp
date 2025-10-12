@@ -55,7 +55,7 @@ fun TripLogScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Trip Log") },
+                title = { Text("Trip Logs") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -101,23 +101,34 @@ fun TripLogScreen(
             item {
                 Column {
                     Text(
-                        text = "Completed Trips (${filteredTrips.size})",
+                        text = "Trip Logs (${filteredTrips.size})",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     
-                    // Trip type statistics
+                    // Trip statistics
                     val sharedCount = completedTrips.count { it.tripType == "shared" }
                     val individualCount = completedTrips.count { it.tripType == "individual" }
+                    val completedCount = completedTrips.count { it.status?.equals("completed", ignoreCase = true) == true }
+                    val cancelledCount = completedTrips.count { 
+                        val s = it.status?.lowercase()
+                        s == "cancelled" || s == "canceled"
+                    }
                     
                     if (completedTrips.isNotEmpty()) {
-                        Text(
-                            text = "📊 ${sharedCount} shared trips • ${individualCount} individual trips",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
+                        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                            Text(
+                                text = "📊 ${sharedCount} shared • ${individualCount} individual",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "✅ Completed: ${completedCount}   ❌ Cancelled: ${cancelledCount}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

@@ -53,7 +53,7 @@ class TripNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // Use your app icon
+            .setSmallIcon(R.mipmap.ic_launcher) // Use your app icon
             .setContentTitle("New Trip Assigned")
             .setContentText("Trip to $destination is ready")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -78,7 +78,7 @@ class TripNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Trip Reminder")
             .setContentText("Trip to $destination starts in $minutesUntilStart minutes")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -93,7 +93,7 @@ class TripNotificationManager(private val context: Context) {
     
     fun showLegCompletedNotification(legNumber: Int, teamName: String) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Leg Completed")
             .setContentText("Leg $legNumber for $teamName completed successfully")
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -107,7 +107,7 @@ class TripNotificationManager(private val context: Context) {
     
     fun showFuelWarningNotification(expectedFuel: Double, actualFuel: Double) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Fuel Usage Alert")
             .setContentText("Fuel usage (${String.format("%.1f", actualFuel)}L) exceeds expected range (${String.format("%.1f", expectedFuel)}L)")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -131,7 +131,7 @@ class TripNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Trip Completed")
             .setContentText("Trip completed: ${String.format("%.1f", totalDistance)}km, ${String.format("%.1f", totalFuel)}L fuel used")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

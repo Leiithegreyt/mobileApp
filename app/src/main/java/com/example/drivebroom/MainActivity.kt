@@ -5,7 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.drivebroom.network.NetworkClient
 import com.example.drivebroom.repository.DriverRepository
@@ -223,6 +228,7 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                         // Use ViewModel's state instead of MainActivity's state
                         val viewModelTripDetails by tripDetailsViewModel.tripDetails.collectAsState()
                         val isLoading by tripDetailsViewModel.isLoading.collectAsState()
+                        val viewModelError by tripDetailsViewModel.tripDetailsError.collectAsState()
                         
                         // Store in local variable to enable smart cast
                         val currentTripDetails = viewModelTripDetails
@@ -243,16 +249,55 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                     CircularProgressIndicator()
                                 }
                             }
+                            viewModelError != null -> {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            text = "Error: $viewModelError",
+                                            color = MaterialTheme.colorScheme.error,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        androidx.compose.material3.Button(
+                                            onClick = {
+                                                selectedTripId.value = null
+                                                tripDetailsError.value = null
+                                            }
+                                        ) {
+                                            androidx.compose.material3.Text("Go Back")
+                                        }
+                                    }
+                                }
+                            }
                             currentTripDetails != null -> {
-                                // Unified leg flow for both single and shared trips
-                                SharedTripFlowScreen(
-                                    tripDetails = currentTripDetails,
-                                    onBack = {
-                                        selectedTripId.value = null
-                                        tripDetailsError.value = null
-                                    },
-                                    viewModel = tripDetailsViewModel
-                                )
+                                // Route based on trip type
+                                if (currentTripDetails.trip_type == "shared") {
+                                    // Shared trip flow
+                                    SharedTripFlowScreen(
+                                        tripDetails = currentTripDetails,
+                                        onBack = {
+                                            selectedTripId.value = null
+                                            tripDetailsError.value = null
+                                        },
+                                        viewModel = tripDetailsViewModel
+                                    )
+                                } else {
+                                    // Single trip flow
+                                    TripDetailsScreen(
+                                        tripDetails = currentTripDetails,
+                                        onBack = {
+                                            selectedTripId.value = null
+                                            tripDetailsError.value = null
+                                        },
+                                        viewModel = tripDetailsViewModel
+                                    )
+                                }
                             }
                             else -> {
                                 // Show error or empty state

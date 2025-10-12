@@ -66,6 +66,9 @@ class TripDetailsViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
+    private val _tripDetailsError = MutableStateFlow<String?>(null)
+    val tripDetailsError: StateFlow<String?> = _tripDetailsError
+
     // Itinerary state for multi-stop trips (5 columns)
     data class ItineraryLeg(
         val odometerStart: Double, // Odometer reading at departure
@@ -140,6 +143,7 @@ class TripDetailsViewModel(
         _itinerary.value = emptyList()
         _actionState.value = TripActionState.Idle
         _isLoading.value = false
+        _tripDetailsError.value = null
         android.util.Log.d("TripDetailsViewModel", "State reset - tripDetails: ${_tripDetails.value?.id}, isLoading: ${_isLoading.value}")
     }
 
@@ -147,6 +151,7 @@ class TripDetailsViewModel(
         android.util.Log.d("TripDetailsViewModel", "=== LOADING TRIP DETAILS ===")
         android.util.Log.d("TripDetailsViewModel", "TripId: $tripId")
         _isLoading.value = true
+        _tripDetailsError.value = null // Clear any previous error
         viewModelScope.launch {
             val result = repository.getTripDetails(tripId)
             result.onSuccess { details ->
@@ -175,7 +180,7 @@ class TripDetailsViewModel(
                         val firstLeg = legs.firstOrNull()
                         val destination = if (isShared) "Multiple Destinations" else (firstLeg?.destination ?: "-")
                         val passengersArray = com.google.gson.JsonArray().apply {
-                            firstLeg?.passengers?.forEach { add(it) }
+                            firstLeg?.passengers?.forEach { p -> this.add(p) }
                         }
                         val minimal = com.example.drivebroom.network.TripDetails(
                             id = tripId,
@@ -193,13 +198,17 @@ class TripDetailsViewModel(
                             current_leg = 0
                         )
                         _tripDetails.value = minimal
+                        _tripDetailsError.value = null // Clear any previous error
                         lastLoadedTripId = tripId
                         _isLoading.value = false
                         android.util.Log.d("TripDetailsViewModel", "Synthesized details for tripId=$tripId from legs (${legs.size}).")
                         return@launch
                     } catch (e: Exception) {
                         android.util.Log.e("TripDetailsViewModel", "Fallback failed: ${e.message}")
+                        _tripDetailsError.value = "Failed to load trip details: ${e.message}"
                     }
+                } else {
+                    _tripDetailsError.value = "Failed to load trip details: ${error.message}"
                 }
                 _isLoading.value = false
             }
@@ -524,6 +533,15 @@ class TripDetailsViewModel(
                     departure_location = departureLocation,
                     manifest_override_reason = manifestOverrideReason
                 )
+                
+                android.util.Log.d("TripDetailsViewModel", "=== SENDING LEG DEPARTURE REQUEST ===")
+                android.util.Log.d("TripDetailsViewModel", "Trip ID: $safeTripId, Leg ID: $legId")
+                android.util.Log.d("TripDetailsViewModel", "Odometer Start: $odometerStart")
+                android.util.Log.d("TripDetailsViewModel", "Fuel Start: $fuelStart")
+                android.util.Log.d("TripDetailsViewModel", "Departure Time: ${convertTo24Hour(departureTime)}")
+                android.util.Log.d("TripDetailsViewModel", "Departure Location: '$departureLocation'")
+                android.util.Log.d("TripDetailsViewModel", "Passengers Confirmed: $passengersConfirmed")
+                android.util.Log.d("TripDetailsViewModel", "Manifest Override: $manifestOverrideReason")
                 val result = repository.logLegDeparture(safeTripId, legId, request)
                 _actionState.value = result.fold(
                     onSuccess = { 

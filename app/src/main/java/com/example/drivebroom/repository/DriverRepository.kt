@@ -114,11 +114,12 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun getTripDetails(tripId: Int): Result<TripDetails> {
         return withContext(Dispatchers.IO) {
             try {
+                Log.d("DriverRepository", "Getting trip details for trip ID: $tripId")
                 val json = apiService.getTripDetails(tripId)
                 Log.d("DriverRepository", "Raw trip details JSON: $json")
                 
                 val gson = Gson()
-                val tripDetails: TripDetails = if (json.isJsonObject) {
+                var tripDetails: TripDetails = if (json.isJsonObject) {
                     val obj = json.asJsonObject
                     Log.d("DriverRepository", "Trip details object keys: ${obj.keySet()}")
                     
@@ -141,33 +142,104 @@ class DriverRepository(val apiService: ApiService) {
                                 gson.fromJson(dataObj, TripDetails::class.java)
                             } catch (e: Exception) {
                                 Log.w("DriverRepository", "Gson parse failed for unified data: ${e.message}")
+                                // Determine trip type based on actual data structure, not just the field
+                                val hasTripStops = dataObj.has("trip_stops") && dataObj.get("trip_stops").isJsonArray && dataObj.get("trip_stops").asJsonArray.size() > 1
+                                val hasLegs = dataObj.has("legs") && dataObj.get("legs").isJsonArray && dataObj.get("legs").asJsonArray.size() > 1
+                                val declaredTripType = dataObj.get("trip_type")?.asString
+                                
+                                // If it has multiple stops/legs, it's definitely a shared trip
+                                // Otherwise, respect the declared trip_type or default to "single"
+                                val determinedTripType = when {
+                                    hasTripStops || hasLegs -> "shared"
+                                    declaredTripType != null -> declaredTripType
+                                    else -> "single"
+                                }
+                                
+                                // Special handling for duplicate trip IDs - prioritize single trips when data doesn't match
+                                val finalTripType = if (determinedTripType == "shared" && !hasTripStops && !hasLegs) {
+                                    Log.w("DriverRepository", "Trip ID $tripId declared as 'shared' but has no multiple stops/legs - treating as single trip")
+                                    "single"
+                                } else {
+                                    determinedTripType
+                                }
+                                
+                                Log.d("DriverRepository", "Trip type determination: declared='$declaredTripType', hasStops=$hasTripStops, hasLegs=$hasLegs, determined='$finalTripType'")
+                                
                                 TripDetails(
                                     id = 0,
                                     status = dataObj.get("status")?.asString ?: "approved",
                                     travel_date = dataObj.get("travel_date")?.asString ?: "",
                                     date_of_request = dataObj.get("date_of_request")?.asString ?: dataObj.get("created_at")?.asString ?: "",
                                     travel_time = dataObj.get("departure_time")?.asString ?: "",
-                                    destination = dataObj.get("destination")?.asString ?: if (dataObj.has("trip_stops")) "Multiple Destinations" else "",
+                                    destination = dataObj.get("destination")?.asString ?: if (hasTripStops) "Multiple Destinations" else "",
                                     purpose = dataObj.get("utilization_type")?.asString,
-                                    passengers = com.google.gson.JsonArray(),
+                                    passengers = dataObj.get("passengers") ?: com.google.gson.JsonArray(),
                                     vehicle = dataObj.get("vehicle")?.let { gson.fromJson(it, com.example.drivebroom.network.Vehicle::class.java) },
-                                    trip_type = dataObj.get("trip_type")?.asString ?: "shared",
+                                    trip_type = finalTripType,
                                     stops = null,
                                     legs = null,
                                     current_leg = 0
                                 )
                             }
+                            
+                            // Validate and correct trip type even when Gson parsing succeeds
+                            val hasTripStops = dataObj.has("trip_stops") && dataObj.get("trip_stops").isJsonArray && dataObj.get("trip_stops").asJsonArray.size() > 1
+                            val hasLegs = dataObj.has("legs") && dataObj.get("legs").isJsonArray && dataObj.get("legs").asJsonArray.size() > 1
+                            val declaredTripType = dataObj.get("trip_type")?.asString
+                            
+                            // Determine correct trip type based on actual data structure
+                            val correctTripType = when {
+                                hasTripStops || hasLegs -> "shared"
+                                declaredTripType != null -> declaredTripType
+                                else -> "single"
+                            }
+                            
+                            // Special handling for duplicate trip IDs - use data structure to determine correct type
+                            val finalTripType = when {
+                                hasTripStops || hasLegs -> "shared"
+                                correctTripType == "shared" && !hasTripStops && !hasLegs -> {
+                                    Log.w("DriverRepository", "Trip ID $tripId declared as 'shared' but has no multiple stops/legs - treating as single trip")
+                                    "single"
+                                }
+                                else -> correctTripType
+                            }
+                            
+                            // Log trip type validation
+                            if (parsed.trip_type != finalTripType) {
+                                Log.w("DriverRepository", "Trip type mismatch corrected: declared='${parsed.trip_type}', actual='$finalTripType' (hasStops=$hasTripStops, hasLegs=$hasLegs)")
+                            }
+                            
                             // If id still 0, synthesize minimal fields from data
-                            if (parsed.id == 0 && dataObj.has("id")) {
+                            val finalParsed = if (parsed.id == 0 && dataObj.has("id")) {
                                 Log.w("DriverRepository", "Parsed id was 0; overriding from data.id")
+                                val rawId = dataObj.get("id")
+                                val numericId = when {
+                                    rawId.isJsonPrimitive && rawId.asJsonPrimitive.isString -> {
+                                        // Handle string IDs like "shared_2" by extracting the numeric part
+                                        val idStr = if (rawId.isJsonPrimitive && rawId.asJsonPrimitive.isString) rawId.asString else ""
+                                        val numericPart = idStr.replace(Regex("[^0-9]"), "")
+                                        if (numericPart.isNotEmpty()) numericPart.toIntOrNull() ?: 0 else 0
+                                    }
+                                    rawId.isJsonPrimitive && rawId.asJsonPrimitive.isNumber -> {
+                                        rawId.asInt
+                                    }
+                                    else -> 0
+                                }
                                 parsed.copy(
-                                    id = dataObj.get("id").asInt,
+                                    id = numericId,
                                     purpose = parsed.purpose ?: dataObj.get("utilization_type")?.asString,
-                                    destination = parsed.destination.ifEmpty { if (dataObj.has("trip_stops")) "Multiple Destinations" else dataObj.get("destination")?.asString ?: "" }
+                                    destination = when {
+                                        !parsed.destination.isNullOrEmpty() -> parsed.destination
+                                        hasTripStops -> "Multiple Destinations"
+                                        else -> dataObj.get("destination")?.asString ?: ""
+                                    },
+                                    trip_type = finalTripType
                                 )
                             } else {
-                                parsed
+                                parsed.copy(trip_type = finalTripType)
                             }
+                            
+                            finalParsed
                         }
                         // server may return bare TripDetails
                         obj.has("id") && obj.has("status") -> {
@@ -185,12 +257,45 @@ class DriverRepository(val apiService: ApiService) {
                     throw IllegalStateException("Unexpected JSON for trip details")
                 }
                 
+                // Enrich vehicle info if backend uses alternate key names
+                try {
+                    if (tripDetails.vehicle == null && json.isJsonObject) {
+                        val rootObj = json.asJsonObject
+                        val sourceObj = when {
+                            rootObj.has("trip") -> rootObj.get("trip").asJsonObject
+                            rootObj.has("data") -> rootObj.get("data").asJsonObject
+                            else -> null
+                        }
+                        if (sourceObj != null) {
+                            val vehEl = when {
+                                sourceObj.has("vehicle") -> sourceObj.get("vehicle")
+                                sourceObj.has("vehicle_info") -> sourceObj.get("vehicle_info")
+                                else -> null
+                            }
+                            if (vehEl != null && vehEl.isJsonObject) {
+                                val veh = gson.fromJson(vehEl, com.example.drivebroom.network.Vehicle::class.java)
+                                tripDetails = tripDetails.copy(vehicle = veh)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("DriverRepository", "Vehicle enrichment failed: ${e.message}")
+                }
+
                 Log.d("DriverRepository", "Parsed trip details - ID: ${tripDetails.id}, Purpose: ${tripDetails.purpose}, Passengers: ${tripDetails.passengers}")
+                Log.d("DriverRepository", "Trip details - travel_date: '${tripDetails.travel_date}', travel_time: '${tripDetails.travel_time}'")
+                Log.d("DriverRepository", "Trip details - trip_type: '${tripDetails.trip_type}', destination: '${tripDetails.destination}'")
                 Log.d("DriverRepository", "Passengers type: ${tripDetails.passengers?.javaClass?.simpleName}")
                 Log.d("DriverRepository", "Passengers isJsonArray: ${tripDetails.passengers?.isJsonArray}")
                 Log.d("DriverRepository", "Passengers isJsonPrimitive: ${tripDetails.passengers?.isJsonPrimitive}")
                 if (tripDetails.passengers?.isJsonPrimitive == true) {
                     Log.d("DriverRepository", "Passengers as string: ${tripDetails.passengers?.asString}")
+                }
+                if (tripDetails.passengers?.isJsonArray == true) {
+                    Log.d("DriverRepository", "Passengers array size: ${tripDetails.passengers?.asJsonArray?.size()}")
+                    tripDetails.passengers?.asJsonArray?.forEachIndexed { index, element ->
+                        Log.d("DriverRepository", "Passenger $index: $element")
+                    }
                 }
                 Result.success(tripDetails)
             } catch (e: Exception) {
@@ -266,12 +371,12 @@ class DriverRepository(val apiService: ApiService) {
             try {
                 Log.d("DriverRepository", "=== GET TRIP LEGS (UNIFIED) ===")
                 Log.d("DriverRepository", "Getting trip legs for trip $tripId")
-                val response = apiService.getTripLegs(tripId)
-                Log.d("DriverRepository", "Raw API response: $response")
-                Log.d("DriverRepository", "Response size: ${response.size}")
+                val rawResponse = apiService.getTripLegs(tripId)
+                Log.d("DriverRepository", "Raw API response: $rawResponse")
+                Log.d("DriverRepository", "Response size: ${rawResponse.size}")
                 
                 // Log each leg's raw data
-                response.forEachIndexed { index, leg ->
+                rawResponse.forEachIndexed { index, leg ->
                     Log.d("DriverRepository", "=== RAW LEG $index ===")
                     Log.d("DriverRepository", "ID: ${leg.leg_id}")
                     Log.d("DriverRepository", "Status: ${leg.status}")
@@ -280,9 +385,104 @@ class DriverRepository(val apiService: ApiService) {
                     Log.d("DriverRepository", "Fuel Used: ${leg.fuel_used}")
                     Log.d("DriverRepository", "Fuel Purchased: ${leg.fuel_purchased}")
                     Log.d("DriverRepository", "Notes: ${leg.notes}")
+                    Log.d("DriverRepository", "Passengers raw: ${leg.passengers}")
                 }
                 
-                response
+                // Normalize passengers: backend returns objects like [{"name":"Sergie","count":1}]
+                rawResponse.map { rawLeg ->
+                    val normalizedPassengers: List<String> = try {
+                        rawLeg.passengers?.let { jsonElement ->
+                            Log.d("DriverRepository", "Processing passengers for leg ${rawLeg.leg_id}: $jsonElement")
+                            Log.d("DriverRepository", "Is JsonArray: ${jsonElement.isJsonArray}")
+                            Log.d("DriverRepository", "Is JsonPrimitive: ${jsonElement.isJsonPrimitive}")
+                            
+                            when {
+                                jsonElement.isJsonArray -> {
+                                    Log.d("DriverRepository", "Processing as JsonArray")
+                                    val names = jsonElement.asJsonArray.mapNotNull { el ->
+                                        Log.d("DriverRepository", "Array element: $el")
+                                        Log.d("DriverRepository", "Is JsonObject: ${el.isJsonObject}")
+                                        Log.d("DriverRepository", "Is JsonPrimitive: ${el.isJsonPrimitive}")
+                                        
+                                        if (el.isJsonPrimitive && el.asJsonPrimitive.isString) {
+                                            val name = el.asString
+                                            Log.d("DriverRepository", "Extracted string name: $name")
+                                            name
+                                        } else if (el.isJsonObject && el.asJsonObject.has("name")) {
+                                            val nameElement = el.asJsonObject.get("name")
+                                            val name = if (nameElement != null && !nameElement.isJsonNull && nameElement.isJsonPrimitive && nameElement.asJsonPrimitive.isString) {
+                                                nameElement.asString
+                                            } else null
+                                            Log.d("DriverRepository", "Extracted object name: $name")
+                                            name
+                                        } else {
+                                            Log.d("DriverRepository", "Could not extract name from element: $el")
+                                            null
+                                        }
+                                    }
+                                    Log.d("DriverRepository", "Final names from array: $names")
+                                    names
+                                }
+                                jsonElement.isJsonPrimitive && jsonElement.asJsonPrimitive.isString -> {
+                                    val raw = jsonElement.asString
+                                    Log.d("DriverRepository", "Processing as JsonPrimitive string: $raw")
+                                    try {
+                                        // Try parsing as JSON array of objects
+                                        val gson = com.google.gson.Gson()
+                                        val type = object : com.google.gson.reflect.TypeToken<List<Map<String, Any>>>() {}.type
+                                        val objects = gson.fromJson<List<Map<String, Any>>>(raw, type)
+                                        val names = objects.mapNotNull { it["name"] as? String }
+                                        Log.d("DriverRepository", "Parsed objects names: $names")
+                                        names
+                                    } catch (_: Exception) {
+                                        // Try parsing as JSON array of strings
+                                        try {
+                                            val gson = com.google.gson.Gson()
+                                            val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+                                            val strings = gson.fromJson<List<String>>(raw, type)
+                                            Log.d("DriverRepository", "Parsed string names: $strings")
+                                            strings
+                                        } catch (_: Exception) {
+                                            Log.d("DriverRepository", "Failed to parse as JSON, returning empty list")
+                                            emptyList()
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    Log.d("DriverRepository", "Unknown JsonElement type, returning empty list")
+                                    emptyList()
+                                }
+                            }
+                        } ?: emptyList()
+                    } catch (e: Exception) {
+                        Log.e("DriverRepository", "Error parsing passengers: ${e.message}")
+                        e.printStackTrace()
+                        emptyList()
+                    }
+                    
+                    Log.d("DriverRepository", "Normalized passengers for leg ${rawLeg.leg_id}: $normalizedPassengers")
+                    
+                    SharedTripLeg(
+                        leg_id = rawLeg.leg_id,
+                        stop_id = rawLeg.stop_id,
+                        team_name = rawLeg.team_name,
+                        destination = rawLeg.destination,
+                        purpose = rawLeg.purpose,
+                        passengers = normalizedPassengers,
+                        odometer_start = rawLeg.odometer_start,
+                        odometer_end = rawLeg.odometer_end,
+                        fuel_start = rawLeg.fuel_start,
+                        fuel_end = rawLeg.fuel_end,
+                        fuel_used = rawLeg.fuel_used,
+                        fuel_purchased = rawLeg.fuel_purchased,
+                        notes = rawLeg.notes,
+                        departure_time = rawLeg.departure_time,
+                        arrival_time = rawLeg.arrival_time,
+                        departure_location = rawLeg.departure_location,
+                        arrival_location = rawLeg.arrival_location,
+                        status = rawLeg.status
+                    )
+                }
             } catch (e: Exception) {
                 Log.e("DriverRepository", "Error getting trip legs: ${e.message}")
                 e.printStackTrace()
@@ -294,14 +494,25 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun logLegDeparture(tripId: Int, legId: Int, request: LegDepartureRequest): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d("DriverRepository", "Logging leg departure for trip $tripId, leg $legId")
+                Log.d("DriverRepository", "=== SENDING LEG DEPARTURE TO BACKEND ===")
+                Log.d("DriverRepository", "Trip ID: $tripId, Leg ID: $legId")
+                Log.d("DriverRepository", "Request data:")
+                Log.d("DriverRepository", "  - odometer_start: ${request.odometer_start}")
+                Log.d("DriverRepository", "  - fuel_start: ${request.fuel_start}")
+                Log.d("DriverRepository", "  - departure_time: '${request.departure_time}'")
+                Log.d("DriverRepository", "  - departure_location: '${request.departure_location}'")
+                Log.d("DriverRepository", "  - passengers_confirmed: ${request.passengers_confirmed}")
+                Log.d("DriverRepository", "  - manifest_override_reason: '${request.manifest_override_reason}'")
                 val response = apiService.logLegDeparture(tripId, legId, request)
+                Log.d("DriverRepository", "Backend response code: ${response.code()}")
+                Log.d("DriverRepository", "Backend response headers: ${response.headers()}")
                 if (response.isSuccessful) {
-                    Log.d("DriverRepository", "Leg departure successful")
+                    Log.d("DriverRepository", "✅ Leg departure successful - backend accepted the data")
                     Result.success(Unit)
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    Log.e("DriverRepository", "Leg departure failed: ${response.code()} - $errorBody")
+                    Log.e("DriverRepository", "❌ Leg departure failed: ${response.code()}")
+                    Log.e("DriverRepository", "Error body: $errorBody")
                     Result.failure(Exception("Leg departure failed: ${response.code()} - $errorBody"))
                 }
             } catch (e: Exception) {

@@ -22,6 +22,10 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import com.example.drivebroom.ui.components.StatusChip
 import java.time.ZonedDateTime
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalMaterial3Api::class)
 
@@ -62,11 +66,23 @@ fun SharedTripDetailsScreen(
         tripDetails.travel_date
     }
 
-    val formattedTravelTime = try {
-        val zdt = ZonedDateTime.parse(tripDetails.travel_time)
-        zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
-    } catch (e: Exception) {
-        tripDetails.travel_time
+    val formattedTravelTime = run {
+        // Prefer trip-level travel_time; fallback to first leg scheduled_pickup_time; else show "-"
+        val rawTime = tripDetails.travel_time ?: sharedTripLegs.firstOrNull()?.departure_time
+        if (rawTime.isNullOrBlank()) "-" else {
+            try {
+                val zdt = ZonedDateTime.parse(rawTime)
+                zdt.format(DateTimeFormatter.ofPattern("h:mm a"))
+            } catch (_: Exception) {
+                // Fallback: try without timezone or seconds
+                try {
+                    val lt = java.time.LocalTime.parse(rawTime.substringAfterLast('T').substring(0,5))
+                    lt.format(DateTimeFormatter.ofPattern("h:mm a"))
+                } catch (_: Exception) {
+                    "-"
+                }
+            }
+        }
     }
 
     // Calculate trip statistics
@@ -79,7 +95,14 @@ fun SharedTripDetailsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Shared Trip Details") },
+                title = {
+                    val titleText = if (tripDetails.trip_type?.equals("shared", ignoreCase = true) == true) {
+                        "Shared Trip Details"
+                    } else {
+                        "Trip Details"
+                    }
+                    Text(titleText)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -121,47 +144,11 @@ fun SharedTripDetailsScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
-                        Text(
-                            text = "Purpose: ${tripDetails.purpose}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
                     }
                 }
             }
 
-            item {
-                // Trip Statistics
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Trip Statistics",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            StatItem("Total Stops", totalStops.toString())
-                            StatItem("Completed", completedStops.toString())
-                            StatItem("In Progress", inProgressStops.toString())
-                            StatItem("Pending", pendingStops.toString())
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            StatItem("Total Passengers", totalPassengers.toString())
-                        }
-                    }
-                }
-            }
+            // Trip Statistics removed per request
 
             item {
                 // Start Trip Button
@@ -184,6 +171,88 @@ fun SharedTripDetailsScreen(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
+            }
+
+            item {
+                // Overall Trip Passengers (moved from leg execution screen)
+                // Build from tripDetails.passengers or by concatenating leg passengers as a fallback
+                val passengersList: List<String> = run {
+                    val fromTrip: List<String> = try {
+                        val elem = tripDetails.passengers
+                        when {
+                            elem == null -> emptyList()
+                            elem.isJsonArray -> {
+                                elem.asJsonArray.mapNotNull { jsonEl ->
+                                    if (jsonEl.isJsonPrimitive && jsonEl.asJsonPrimitive.isString) jsonEl.asString
+                                    else if (jsonEl.isJsonObject && jsonEl.asJsonObject.has("name")) jsonEl.asJsonObject.get("name").asString
+                                    else null
+                                }
+                            }
+                            elem.isJsonPrimitive && elem.asJsonPrimitive.isString -> {
+                                val raw = elem.asString
+                                var parsed: List<String> = emptyList()
+                                try {
+                                    val arr = kotlinx.serialization.json.Json.parseToJsonElement(raw)
+                                    if (arr is kotlinx.serialization.json.JsonArray) {
+                                        val names = arr.mapNotNull { el ->
+                                            (el as? kotlinx.serialization.json.JsonObject)?.get("name")?.let { nameEl ->
+                                                if (nameEl is kotlinx.serialization.json.JsonPrimitive) nameEl.content else null
+                                            }
+                                        }
+                                        if (names.isNotEmpty()) parsed = names
+                                    }
+                                } catch (_: Exception) {}
+                                if (parsed.isEmpty()) {
+                                    try { parsed = kotlinx.serialization.json.Json.decodeFromString<List<String>>(raw) } catch (_: Exception) { parsed = emptyList() }
+                                }
+                                parsed
+                            }
+                            else -> emptyList()
+                        }
+                    } catch (_: Exception) { emptyList() }
+                    if (fromTrip.isNotEmpty()) fromTrip else sharedTripLegs.flatMap { it.passengers ?: emptyList() }.distinct()
+                }
+
+                if (passengersList.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Trip Passengers (${passengersList.size}):",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            passengersList.forEachIndexed { index, passenger ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "${index + 1}. $passenger",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             items(sharedTripLegs) { leg ->
@@ -261,6 +330,14 @@ private fun LegCard(
                 style = MaterialTheme.typography.bodyMedium
             )
             
+            leg.purpose?.let { purpose ->
+                Text(
+                    text = "Purpose: $purpose",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
             val safePassengers = leg.passengers ?: emptyList()
             Text(
                 text = "Passengers: ${safePassengers.size}",
@@ -294,8 +371,8 @@ private fun LegCard(
                 }
             }
             
-            // Show timing information if available
-            if (leg.departure_time != null || leg.arrival_time != null) {
+            // Show timing information: only departure as requested
+            if (leg.departure_time != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Divider()
                 Spacer(modifier = Modifier.height(8.dp))
@@ -312,20 +389,6 @@ private fun LegCard(
                             )
                             Text(
                                 text = convertTo12Hour(departureTime),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    leg.arrival_time?.let { arrivalTime ->
-                        Column {
-                            Text(
-                                text = "Arrival",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = convertTo12Hour(arrivalTime),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Medium
                             )
