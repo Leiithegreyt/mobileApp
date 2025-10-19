@@ -6,6 +6,9 @@ import com.example.drivebroom.repository.DriverRepository
 import com.example.drivebroom.network.DepartureBody
 import com.example.drivebroom.network.ArrivalBody
 import com.example.drivebroom.network.ReturnBody
+import com.example.drivebroom.network.ReturnStartBody
+import com.example.drivebroom.network.ReturnArrivalBody
+import com.example.drivebroom.network.CompleteBody
 import com.example.drivebroom.network.TripDetails
 import com.example.drivebroom.network.PassengerDetail
 import com.example.drivebroom.network.CompletedTrip
@@ -106,6 +109,14 @@ class TripDetailsViewModel(
     private val _isSharedTrip = MutableStateFlow(false)
     val isSharedTrip: StateFlow<Boolean> = _isSharedTrip
 
+    // Single trip status tracking
+    private val _singleTripStatus = MutableStateFlow("pending")
+    val singleTripStatus: StateFlow<String> = _singleTripStatus
+    
+    // Track when we've made a local status update to prevent backend override
+    private var lastLocalStatusUpdate = 0L
+    private val STATUS_UPDATE_PROTECTION_DURATION = 5000L // 5 seconds
+
     fun addDepartureLeg(odometer: Double, timeDeparture: String, departure: String, timeDepartureDisplay: String) {
         android.util.Log.d("TripDetailsViewModel", "=== VIEWMODEL DEPARTURE DEBUG ===")
         android.util.Log.d("TripDetailsViewModel", "Received odometer: $odometer")
@@ -130,6 +141,14 @@ class TripDetailsViewModel(
         }
     }
 
+    fun addFuelStartToLastLeg(fuelStart: Double) {
+        _itinerary.update {
+            if (it.isNotEmpty()) {
+                it.dropLast(1) + it.last().copy(fuelStart = fuelStart)
+            } else it
+        }
+    }
+
     fun clearItinerary() {
         _itinerary.value = emptyList()
     }
@@ -144,6 +163,7 @@ class TripDetailsViewModel(
         _actionState.value = TripActionState.Idle
         _isLoading.value = false
         _tripDetailsError.value = null
+        _singleTripStatus.value = "pending"
         android.util.Log.d("TripDetailsViewModel", "State reset - tripDetails: ${_tripDetails.value?.id}, isLoading: ${_isLoading.value}")
     }
 
@@ -161,52 +181,67 @@ class TripDetailsViewModel(
                 android.util.Log.d("TripDetailsViewModel", "State updated - tripDetails: ${_tripDetails.value?.id}, isLoading: ${_isLoading.value}")
                 // Remember trip id
                 lastLoadedTripId = details.id
-                // Check if this is a shared trip
-                // Unified legs loading for both single and shared trips
-                _isSharedTrip.value = details.trip_type == "shared"
-                android.util.Log.d("TripDetailsViewModel", "Loading legs via unified endpoint for trip: ${details.id}, type: ${details.trip_type}")
-                loadSharedTripLegs(tripId)
+                // Update single trip status
+                android.util.Log.d("TripDetailsViewModel", "Backend returned status: '${details.status}'")
+                android.util.Log.d("TripDetailsViewModel", "Current local status before update: '${_singleTripStatus.value}'")
+                
+                // Only update status from backend if it's a valid progression
+                // This prevents backend from overriding local status updates
+                val currentStatus = _singleTripStatus.value
+                val backendStatus = details.status
+                val currentTime = System.currentTimeMillis()
+                val timeSinceLastUpdate = currentTime - lastLocalStatusUpdate
+                
+                android.util.Log.d("TripDetailsViewModel", "Backend status: '$backendStatus', Current local status: '$currentStatus'")
+                android.util.Log.d("TripDetailsViewModel", "Time since last local update: ${timeSinceLastUpdate}ms")
+                
+                // Only update if backend status is a valid progression or if local status is still pending
+                // Also check if we're still in the protection period
+                val shouldUpdate = when {
+                    currentStatus == "pending" -> true // Always update from pending
+                    timeSinceLastUpdate < STATUS_UPDATE_PROTECTION_DURATION -> {
+                        android.util.Log.d("TripDetailsViewModel", "Still in protection period, ignoring backend status")
+                        false // Don't override during protection period
+                    }
+                    currentStatus == "on_route" && backendStatus == "arrived" -> true // Valid progression
+                    currentStatus == "arrived" && backendStatus == "returning" -> true // Valid progression
+                    currentStatus == "returning" && backendStatus == "completed" -> true // Valid progression
+                    currentStatus == "arrived" && backendStatus == "completed" -> true // Direct completion
+                    backendStatus == currentStatus -> true // Same status, no harm
+                    else -> false // Don't override with invalid status
+                }
+                
+                if (shouldUpdate) {
+                    android.util.Log.d("TripDetailsViewModel", "Updating status from '$currentStatus' to '$backendStatus'")
+                    _singleTripStatus.value = backendStatus
+                } else {
+                    android.util.Log.d("TripDetailsViewModel", "Keeping local status '$currentStatus', ignoring backend status '$backendStatus'")
+                }
+                // Simple trip type detection - just check if it has legs
+                val isSharedTrip = (details.legs?.size ?: 0) > 1
+                _isSharedTrip.value = isSharedTrip
+                android.util.Log.d("TripDetailsViewModel", "Trip type detection: legs=${details.legs?.size ?: 0}, isSharedTrip: $isSharedTrip")
+                
+                // Only load shared trip legs if this is actually a shared trip
+                if (_isSharedTrip.value) {
+                    android.util.Log.d("TripDetailsViewModel", "Loading legs via unified endpoint for shared trip: ${details.id}")
+                    loadSharedTripLegs(tripId)
+                } else {
+                    android.util.Log.d("TripDetailsViewModel", "Single trip detected - skipping leg loading")
+                }
             }.onFailure { error ->
                 android.util.Log.e("TripDetailsViewModel", "Failed to load trip details: ${error.message}")
-                // If details 404, try unified legs as fallback and synthesize minimal details
+                // If details 404, handle according to trip type policy
                 val httpCode = (error as? retrofit2.HttpException)?.code()
                 if (httpCode == 404) {
-                    try {
-                        android.util.Log.w("TripDetailsViewModel", "Details 404. Falling back to /trips/{id}/legs to synthesize details.")
-                        val legs = repository.getTripLegs(tripId)
-                        _sharedTripLegs.value = legs
-                        val isShared = legs.size > 1
-                        _isSharedTrip.value = isShared
-                        val firstLeg = legs.firstOrNull()
-                        val destination = if (isShared) "Multiple Destinations" else (firstLeg?.destination ?: "-")
-                        val passengersArray = com.google.gson.JsonArray().apply {
-                            firstLeg?.passengers?.forEach { p -> this.add(p) }
-                        }
-                        val minimal = com.example.drivebroom.network.TripDetails(
-                            id = tripId,
-                            status = "pending",
-                            travel_date = java.time.LocalDate.now().toString(),
-                            date_of_request = java.time.LocalDate.now().toString(),
-                            travel_time = java.time.LocalTime.now().toString(),
-                            destination = destination,
-                            purpose = null,
-                            passengers = passengersArray,
-                            vehicle = null,
-                            trip_type = if (isShared) "shared" else "single",
-                            stops = null,
-                            legs = legs,
-                            current_leg = 0
-                        )
-                        _tripDetails.value = minimal
-                        _tripDetailsError.value = null // Clear any previous error
-                        lastLoadedTripId = tripId
-                        _isLoading.value = false
-                        android.util.Log.d("TripDetailsViewModel", "Synthesized details for tripId=$tripId from legs (${legs.size}).")
-                        return@launch
-                    } catch (e: Exception) {
-                        android.util.Log.e("TripDetailsViewModel", "Fallback failed: ${e.message}")
-                        _tripDetailsError.value = "Failed to load trip details: ${e.message}"
-                    }
+                    // Do NOT call /trips/{id}/legs for single trips; completed singles are not returned by details endpoint
+                    android.util.Log.w("TripDetailsViewModel", "Details 404 for tripId=$tripId. Treating as completed single and stopping refresh.")
+                    _singleTripStatus.value = "completed"
+                    // Optionally fetch completed list to reflect UI state
+                    loadCompletedTrips()
+                    _isLoading.value = false
+                    _tripDetailsError.value = null
+                    return@launch
                 } else {
                     _tripDetailsError.value = "Failed to load trip details: ${error.message}"
                 }
@@ -276,7 +311,7 @@ class TripDetailsViewModel(
         }
     }
 
-    fun logDeparture(tripId: Int, odometerStart: Double, fuelBalanceStart: Double) {
+    fun logDeparture(tripId: Int, odometerStart: Double, fuelBalanceStart: Double, passengersConfirmed: List<String> = emptyList()) {
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             val rawToken = tokenManager.getToken()
@@ -288,38 +323,221 @@ class TripDetailsViewModel(
             }
             Log.d("TripDetailsViewModel", "Attempting departure for trip $tripId with odometer: $odometerStart, fuel: $fuelBalanceStart")
             Log.d("TripDetailsViewModel", "Using token: $token")
-            val result = repository.logDeparture(tripId, DepartureBody(odometerStart, fuelBalanceStart))
-            _actionState.value = result.fold(
+            
+            // Call single trip endpoint (backend now works correctly)
+            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            val departureBody = DepartureBody(odometerStart, fuelBalanceStart, "Base", currentTime, passengersConfirmed)
+            android.util.Log.d("TripDetailsViewModel", "=== DEPARTURE PAYLOAD ===")
+            android.util.Log.d("TripDetailsViewModel", "odometer_start=${departureBody.odometerStart}")
+            android.util.Log.d("TripDetailsViewModel", "fuel_start=${departureBody.fuelStart}")
+            android.util.Log.d("TripDetailsViewModel", "departure_location='${departureBody.departureLocation}'")
+            android.util.Log.d("TripDetailsViewModel", "departure_time='${departureBody.departureTime}'")
+            android.util.Log.d("TripDetailsViewModel", "passengers_confirmed=${departureBody.passengersConfirmed}")
+            val result = repository.logDeparture(tripId, departureBody)
+            result.fold(
                 onSuccess = {
-                    loadTripDetails(tripId)
-                    TripActionState.Success
+                    // Update status locally immediately for UI responsiveness
+                    _singleTripStatus.value = "on_route"
+                    lastLocalStatusUpdate = System.currentTimeMillis()
+                    android.util.Log.d("TripDetailsViewModel", "Updated status to 'on_route' locally")
+                    
+                    // Don't reload immediately - let the UI handle the status change
+                    // The reload will happen when needed
+                    _actionState.value = TripActionState.Success
                 },
-                onFailure = { TripActionState.Error(it.message ?: "Departure failed") }
+                onFailure = { error ->
+                    android.util.Log.e("TripDetailsViewModel", "Departure failed: ${error.message}")
+                    _actionState.value = TripActionState.Error(error.message ?: "Departure failed")
+                }
             )
         }
     }
 
-    fun logArrival(tripId: Int, odometerArrival: Double) {
+    fun logArrival(tripId: Int, odometerEnd: Double, fuelEnd: Double, arrivalLocation: String, fuelUsed: Double? = null, notes: String? = null, passengersDropped: List<String> = emptyList()) {
+        viewModelScope.launch {
+            android.util.Log.d("TripDetailsViewModel", "=== SINGLE TRIP ARRIVAL CALLED ===")
+            android.util.Log.d("TripDetailsViewModel", "TripId: $tripId, OdometerEnd: $odometerEnd, FuelEnd: $fuelEnd, ArrivalLocation: $arrivalLocation")
+            
+            _actionState.value = TripActionState.Loading
+            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+                _actionState.value = TripActionState.Error("No auth token")
+                return@launch
+            }
+            
+            // Call single trip endpoint (backend now works correctly)
+            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            android.util.Log.d("TripDetailsViewModel", "Calling repository.logArrival with ArrivalBody")
+            val result = repository.logArrival(tripId, ArrivalBody(odometerEnd, fuelEnd, arrivalLocation, fuelUsed, notes, currentTime, passengersDropped))
+            result.fold(
+                onSuccess = {
+                    // Update status locally immediately for UI responsiveness
+                    _singleTripStatus.value = "arrived"
+                    lastLocalStatusUpdate = System.currentTimeMillis()
+                    android.util.Log.d("TripDetailsViewModel", "Updated status to 'arrived' locally")
+                    
+                    // Don't reload immediately - let the UI handle the status change
+                    // The reload will happen when the dialog is closed
+                    _actionState.value = TripActionState.Success
+                },
+                onFailure = { error ->
+                    android.util.Log.e("TripDetailsViewModel", "Arrival failed: ${error.message}")
+                    _actionState.value = TripActionState.Error(error.message ?: "Arrival failed")
+                }
+            )
+        }
+    }
+
+    fun logReturnStart(tripId: Int, returnStartLocation: String, odometerStart: Double? = null, fuelStart: Double? = null) {
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
                 _actionState.value = TripActionState.Error("No auth token")
                 return@launch
             }
-            val result = repository.logArrival(tripId, ArrivalBody(odometerArrival))
-            _actionState.value = result.fold(
+            
+            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            val result = repository.logReturnStart(tripId, ReturnStartBody(returnStartLocation, odometerStart, fuelStart, currentTime))
+            result.fold(
                 onSuccess = {
-                    loadTripDetails(tripId)
-                    TripActionState.Success
+                    _singleTripStatus.value = "returning"
+                    lastLocalStatusUpdate = System.currentTimeMillis()
+                    _actionState.value = TripActionState.Success
                 },
-                onFailure = { TripActionState.Error(it.message ?: "Arrival failed") }
+                onFailure = { error ->
+                    android.util.Log.e("TripDetailsViewModel", "Return start failed: ${error.message}")
+                    _actionState.value = TripActionState.Error(error.message ?: "Return start failed")
+                }
+            )
+        }
+    }
+
+    fun logReturnArrival(tripId: Int, odometerEnd: Double, fuelEnd: Double, returnArrivalLocation: String, fuelUsed: Double, notes: String? = null) {
+        viewModelScope.launch {
+            _actionState.value = TripActionState.Loading
+            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+                _actionState.value = TripActionState.Error("No auth token")
+                return@launch
+            }
+            
+            val result = repository.logReturnArrival(tripId, ReturnArrivalBody(odometerEnd, fuelEnd, returnArrivalLocation, fuelUsed, notes))
+            result.fold(
+                onSuccess = {
+                    _singleTripStatus.value = "completed"
+                    lastLocalStatusUpdate = System.currentTimeMillis()
+                    _actionState.value = TripActionState.Success
+                },
+                onFailure = { error ->
+                    android.util.Log.e("TripDetailsViewModel", "Return arrival failed: ${error.message}")
+                    _actionState.value = TripActionState.Error(error.message ?: "Return arrival failed")
+                }
+            )
+        }
+    }
+
+    fun logComplete(tripId: Int, odometerEnd: Double, fuelEnd: Double, fuelUsed: Double, completionNotes: String? = null) {
+        viewModelScope.launch {
+            _actionState.value = TripActionState.Loading
+            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+                _actionState.value = TripActionState.Error("No auth token")
+                return@launch
+            }
+            
+            val result = repository.logComplete(tripId, CompleteBody(odometerEnd, fuelEnd, fuelUsed, completionNotes))
+            result.fold(
+                onSuccess = {
+                    _singleTripStatus.value = "completed"
+                    lastLocalStatusUpdate = System.currentTimeMillis()
+                    _actionState.value = TripActionState.Success
+                },
+                onFailure = { error ->
+                    android.util.Log.e("TripDetailsViewModel", "Complete failed: ${error.message}")
+                    _actionState.value = TripActionState.Error(error.message ?: "Complete failed")
+                }
             )
         }
     }
 
     fun logArrival(tripId: Int) {
-        // Call the existing logArrival with a default value for odometerArrival
-        logArrival(tripId, 0.0)
+        // Call the existing logArrival with default values
+        logArrival(tripId, 0.0, 0.0, "Destination")
+    }
+
+    fun startReturn(tripId: Int, odometerStart: Double, fuelStart: Double) {
+        viewModelScope.launch {
+            android.util.Log.d("TripDetailsViewModel", "=== START RETURN CALLED ===")
+            android.util.Log.d("TripDetailsViewModel", "TripId: $tripId, Odometer: $odometerStart, Fuel: $fuelStart")
+            android.util.Log.d("TripDetailsViewModel", "Current status before: ${_singleTripStatus.value}")
+            
+            _actionState.value = TripActionState.Loading
+            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+                _actionState.value = TripActionState.Error("No auth token")
+                return@launch
+            }
+            
+            // Get current time and location for return start
+            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            val returnLocation = "Destination" // This should be the current location
+            
+            val returnStartRequest = com.example.drivebroom.network.SingleTripReturnStartRequest(
+                odometer_start = odometerStart,
+                fuel_start = fuelStart,
+                return_start_time = currentTime,
+                return_start_location = returnLocation
+            )
+            
+            android.util.Log.d("TripDetailsViewModel", "Sending return start request: $returnStartRequest")
+            
+            val result = repository.startSingleTripReturn(tripId, returnStartRequest)
+            _actionState.value = result.fold(
+                onSuccess = {
+                    android.util.Log.d("TripDetailsViewModel", "✅ Return start successful - backend accepted the request")
+                    // Update status locally immediately for UI responsiveness
+                    _singleTripStatus.value = "returning"
+                    lastLocalStatusUpdate = System.currentTimeMillis()
+                    android.util.Log.d("TripDetailsViewModel", "✅ Updated status to 'returning' locally")
+                    android.util.Log.d("TripDetailsViewModel", "Current status after update: '${_singleTripStatus.value}'")
+                    
+                    // Don't reload immediately - let the UI handle the status change
+                    // The reload will happen when needed
+                    TripActionState.Success
+                },
+                onFailure = { error ->
+                    android.util.Log.e("TripDetailsViewModel", "❌ Single trip return start failed: ${error.message}")
+                    
+                    // Check if it's a trip type error - fallback to local status update
+                    if (error.message?.contains("Invalid trip type") == true || 
+                        error.message?.contains("only for single trips") == true) {
+                        android.util.Log.w("TripDetailsViewModel", "Backend doesn't support single trip return start - updating status locally")
+                        _singleTripStatus.value = "returning"
+                        lastLocalStatusUpdate = System.currentTimeMillis()
+                        android.util.Log.d("TripDetailsViewModel", "✅ Updated status to 'returning' locally (fallback)")
+                        android.util.Log.d("TripDetailsViewModel", "Current status after fallback update: '${_singleTripStatus.value}'")
+                        TripActionState.Success
+                    } else {
+                        TripActionState.Error(error.message ?: "Return start failed")
+                    }
+                }
+            )
+        }
+    }
+
+    fun logReturnArrival(tripId: Int, odometerEnd: Double, fuelEnd: Double, notes: String? = null) {
+        viewModelScope.launch {
+            android.util.Log.d("TripDetailsViewModel", "=== RETURN ARRIVAL CALLED ===")
+            android.util.Log.d("TripDetailsViewModel", "TripId: $tripId, Odometer: $odometerEnd, Fuel: $fuelEnd")
+            
+            _actionState.value = TripActionState.Loading
+            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+                _actionState.value = TripActionState.Error("No auth token")
+                return@launch
+            }
+            
+            // For now, just update status locally since we don't have a dedicated return arrival endpoint
+            // In a full implementation, you would call a backend endpoint
+            android.util.Log.d("TripDetailsViewModel", "Updating status to completed locally")
+            _singleTripStatus.value = "completed"
+            _actionState.value = TripActionState.Success
+        }
     }
 
     fun logReturn(
@@ -380,7 +598,10 @@ class TripDetailsViewModel(
             
             val result = repository.logReturn(tripId, returnBody)
             _actionState.value = result.fold(
-                onSuccess = { TripActionState.Success },
+                onSuccess = { 
+                    _singleTripStatus.value = "completed"
+                    TripActionState.Success 
+                },
                 onFailure = { TripActionState.Error(it.message ?: "Return failed") }
             )
         }
@@ -557,21 +778,26 @@ class TripDetailsViewModel(
                         android.util.Log.d("TripDetailsViewModel", "=== LEG DEPARTURE SUCCESS ===")
                         android.util.Log.d("TripDetailsViewModel", "Successfully departed leg ID: $legId")
                         
-                        // Reload shared trip legs to get updated status
-                        android.util.Log.d("TripDetailsViewModel", "Reloading shared trip legs after departure...")
                         
-                        // Debug: Call debug endpoint to see raw database state
-                        try {
-                            android.util.Log.d("TripDetailsViewModel", "=== CALLING DEBUG ENDPOINT ===")
-                            val debugResponse = repository.getDebugTripLegs(safeTripId)
-                            android.util.Log.d("TripDetailsViewModel", "Debug response: $debugResponse")
-                        } catch (e: Exception) {
-                            android.util.Log.e("TripDetailsViewModel", "Debug endpoint error: ${e.message}")
+                        // Only reload shared trip legs if this is actually a shared trip
+                        if (_isSharedTrip.value) {
+                            android.util.Log.d("TripDetailsViewModel", "Reloading shared trip legs after departure...")
+                            
+                            // Debug: Call debug endpoint to see raw database state
+                            try {
+                                android.util.Log.d("TripDetailsViewModel", "=== CALLING DEBUG ENDPOINT ===")
+                                val debugResponse = repository.getDebugTripLegs(safeTripId)
+                                android.util.Log.d("TripDetailsViewModel", "Debug response: $debugResponse")
+                            } catch (e: Exception) {
+                                android.util.Log.e("TripDetailsViewModel", "Debug endpoint error: ${e.message}")
+                            }
+                            
+                            // Add a small delay to ensure backend has updated the database
+                            kotlinx.coroutines.delay(500)
+                            loadSharedTripLegs(safeTripId)
+                        } else {
+                            android.util.Log.d("TripDetailsViewModel", "Single trip - skipping leg reload after departure")
                         }
-                        
-                        // Add a small delay to ensure backend has updated the database
-                        kotlinx.coroutines.delay(500)
-                        loadSharedTripLegs(safeTripId)
                         
                         // Show notification for leg departure
                         context?.let { ctx ->
@@ -601,7 +827,7 @@ class TripDetailsViewModel(
                             if (httpCode == 404) {
                                 android.util.Log.w("TripDetailsViewModel", "Leg depart 404 - attempting single-trip /trips/{id}/departure fallback")
                                 viewModelScope.launch {
-                                    val dep = repository.logDeparture(safeTripId, DepartureBody(odometerStart, fuelStart))
+                                    val dep = repository.logDeparture(safeTripId, DepartureBody(odometerStart, fuelStart, "Base"))
                                     _actionState.value = dep.fold(
                                         onSuccess = {
                                             loadTripDetails(safeTripId)
@@ -659,6 +885,8 @@ class TripDetailsViewModel(
                     onSuccess = { 
                         android.util.Log.d("TripDetailsViewModel", "=== LEG ARRIVAL SUCCESS ===")
                         android.util.Log.d("TripDetailsViewModel", "Successfully arrived leg ID: $legId")
+                        
+                        
                         // Update itinerary for single trip UI
                         _itinerary.update { list ->
                             if (list.isNotEmpty()) list.dropLast(1) + list.last().copy(
@@ -683,7 +911,7 @@ class TripDetailsViewModel(
                         if (httpCode == 404) {
                             android.util.Log.w("TripDetailsViewModel", "Leg arrive 404 - attempting single-trip /trips/{id}/arrival fallback")
                             viewModelScope.launch {
-                                val arr = repository.logArrival(safeTripId, ArrivalBody(odometerEnd))
+                                val arr = repository.logArrival(safeTripId, ArrivalBody(odometerEnd, 0.0, "Destination"))
                                 _actionState.value = arr.fold(
                                     onSuccess = {
                                         loadTripDetails(safeTripId)
@@ -1035,5 +1263,12 @@ class TripDetailsViewModel(
         
         // Reload fresh data using the correct endpoint
         loadSharedTripLegs(tripId)
+    }
+
+    // Manually refresh trip details (call this after dialogs are closed)
+    fun refreshTripDetails(tripId: Int) {
+        android.util.Log.d("TripDetailsViewModel", "=== MANUAL REFRESH TRIP DETAILS ===")
+        android.util.Log.d("TripDetailsViewModel", "Refreshing trip details for ID: $tripId")
+        loadTripDetails(tripId)
     }
 } 

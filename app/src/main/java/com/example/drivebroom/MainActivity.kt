@@ -236,6 +236,14 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                         LaunchedEffect(selectedTripId.value) {
                             selectedTripId.value?.let { tripId ->
                                 android.util.Log.d("MainActivity", "Loading trip details for tripId: $tripId")
+                                
+                                // Validate trip ID before loading
+                                if (tripId <= 0) {
+                                    android.util.Log.e("MainActivity", "❌ Invalid trip ID: $tripId")
+                                    selectedTripId.value = null
+                                    return@LaunchedEffect
+                                }
+                                
                                 // Do not reset state here to preserve in-progress itinerary when navigating back
                                 tripDetailsViewModel.loadTripDetails(tripId)
                             }

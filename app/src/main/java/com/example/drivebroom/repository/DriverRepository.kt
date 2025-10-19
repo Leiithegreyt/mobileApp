@@ -7,6 +7,9 @@ import com.example.drivebroom.network.FcmTokenRequest
 import com.example.drivebroom.network.DepartureBody
 import com.example.drivebroom.network.ArrivalBody
 import com.example.drivebroom.network.ReturnBody
+import com.example.drivebroom.network.ReturnStartBody
+import com.example.drivebroom.network.ReturnArrivalBody
+import com.example.drivebroom.network.CompleteBody
 import com.example.drivebroom.network.TripDetails
 import com.example.drivebroom.network.CompletedTrip
 import com.example.drivebroom.network.DriverProfile
@@ -71,7 +74,6 @@ class DriverRepository(val apiService: ApiService) {
                 Log.d("DriverRepository", "Logging departure for trip $tripId with body: $body")
                 val response = apiService.logDeparture(tripId, body)
                 Log.d("DriverRepository", "Departure response code: ${response.code()}")
-                Log.d("DriverRepository", "Departure response headers: ${response.headers()}")
                 if (response.isSuccessful) {
                     Log.d("DriverRepository", "Departure successful")
                     Result.success(Unit)
@@ -90,9 +92,60 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun logArrival(tripId: Int, body: ArrivalBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
+                Log.d("DriverRepository", "=== ARRIVAL DEBUG ===")
+                Log.d("DriverRepository", "Trip ID: $tripId")
+                Log.d("DriverRepository", "ArrivalBody: $body")
+                Log.d("DriverRepository", "odometerEnd: ${body.odometerEnd}")
+                Log.d("DriverRepository", "fuelEnd: ${body.fuelEnd}")
+                Log.d("DriverRepository", "arrivalLocation: ${body.arrivalLocation}")
+                
                 val response = apiService.logArrival(tripId, body)
+                Log.d("DriverRepository", "Arrival response code: ${response.code()}")
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "Arrival successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "Arrival failed with code ${response.code()}: $errorBody")
+                    Result.failure(Exception(errorBody ?: "Arrival failed"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Arrival exception", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun logReturnStart(tripId: Int, body: ReturnStartBody): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = apiService.logReturnStart(tripId, body)
                 if (response.isSuccessful) Result.success(Unit)
-                else Result.failure(Exception(response.errorBody()?.string() ?: "Arrival failed"))
+                else Result.failure(Exception(response.errorBody()?.string() ?: "Return start failed"))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun logReturnArrival(tripId: Int, body: ReturnArrivalBody): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = apiService.logReturnArrival(tripId, body)
+                if (response.isSuccessful) Result.success(Unit)
+                else Result.failure(Exception(response.errorBody()?.string() ?: "Return arrival failed"))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun logComplete(tripId: Int, body: CompleteBody): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = apiService.logComplete(tripId, body)
+                if (response.isSuccessful) Result.success(Unit)
+                else Result.failure(Exception(response.errorBody()?.string() ?: "Complete failed"))
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -106,6 +159,36 @@ class DriverRepository(val apiService: ApiService) {
                 if (response.isSuccessful) Result.success(Unit)
                 else Result.failure(Exception(response.errorBody()?.string() ?: "Return failed"))
             } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun startSingleTripReturn(tripId: Int, request: com.example.drivebroom.network.SingleTripReturnStartRequest): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "=== STARTING SINGLE TRIP RETURN ===")
+                Log.d("DriverRepository", "Trip ID: $tripId")
+                Log.d("DriverRepository", "Request data:")
+                Log.d("DriverRepository", "  - odometer_start: ${request.odometer_start}")
+                Log.d("DriverRepository", "  - fuel_start: ${request.fuel_start}")
+                Log.d("DriverRepository", "  - return_start_time: '${request.return_start_time}'")
+                Log.d("DriverRepository", "  - return_start_location: '${request.return_start_location}'")
+                
+                val response = apiService.startSingleTripReturn(tripId, request)
+                Log.d("DriverRepository", "Backend response code: ${response.code()}")
+                
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "✅ Single trip return start successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "❌ Single trip return start failed: ${response.code()}")
+                    Log.e("DriverRepository", "Error body: $errorBody")
+                    Result.failure(Exception("Return start failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Single trip return start exception", e)
                 Result.failure(e)
             }
         }

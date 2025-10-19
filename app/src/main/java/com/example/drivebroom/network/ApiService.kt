@@ -26,13 +26,13 @@ interface ApiService {
     @POST("driver/fcm-token")
     suspend fun updateFcmToken(@Body request: FcmTokenRequest): retrofit2.Response<Unit>
 
-    @POST("trips/{tripId}/departure")
+    @POST("trips/{tripId}/depart")
     suspend fun logDeparture(
         @Path("tripId") tripId: Int,
         @Body body: DepartureBody
     ): retrofit2.Response<Unit>
 
-    @POST("trips/{tripId}/arrival")
+    @POST("trips/{tripId}/arrive")
     suspend fun logArrival(
         @Path("tripId") tripId: Int,
         @Body body: ArrivalBody
@@ -42,6 +42,30 @@ interface ApiService {
     suspend fun logReturn(
         @Path("tripId") tripId: Int,
         @Body body: ReturnBody
+    ): retrofit2.Response<Unit>
+
+    @POST("trips/{tripId}/return-start")
+    suspend fun startSingleTripReturn(
+        @Path("tripId") tripId: Int,
+        @Body body: SingleTripReturnStartRequest
+    ): retrofit2.Response<Unit>
+
+    @POST("trips/{tripId}/return-start")
+    suspend fun logReturnStart(
+        @Path("tripId") tripId: Int,
+        @Body body: ReturnStartBody
+    ): retrofit2.Response<Unit>
+
+    @POST("trips/{tripId}/return-arrive")
+    suspend fun logReturnArrival(
+        @Path("tripId") tripId: Int,
+        @Body body: ReturnArrivalBody
+    ): retrofit2.Response<Unit>
+
+    @POST("trips/{tripId}/complete")
+    suspend fun logComplete(
+        @Path("tripId") tripId: Int,
+        @Body body: CompleteBody
     ): retrofit2.Response<Unit>
 
     // Unified API endpoints for leg execution (single + shared)
@@ -196,9 +220,42 @@ data class FcmTokenRequest(val fcm_token: String)
 
 data class DepartureBody(
     @SerializedName("odometer_start") val odometerStart: Double, 
-    @SerializedName("fuel_balance_start") val fuelBalanceStart: Double
+    @SerializedName("fuel_start") val fuelStart: Double,
+    @SerializedName("departure_location") val departureLocation: String,
+    @SerializedName("departure_time") val departureTime: String? = null,
+    @SerializedName("passengers_confirmed") val passengersConfirmed: List<String>? = null
 )
-data class ArrivalBody(val odometer_arrival: Double)
+data class ArrivalBody(
+    @SerializedName("odometer_end") val odometerEnd: Double,
+    @SerializedName("fuel_end") val fuelEnd: Double,
+    @SerializedName("arrival_location") val arrivalLocation: String,
+    @SerializedName("fuel_used") val fuelUsed: Double? = null,
+    @SerializedName("notes") val notes: String? = null,
+    @SerializedName("arrival_time") val arrivalTime: String? = null,
+    @SerializedName("passengers_dropped") val passengersDropped: List<String>? = null
+)
+
+data class ReturnStartBody(
+    @SerializedName("return_start_location") val returnStartLocation: String,
+    @SerializedName("odometer_start") val odometerStart: Double? = null,
+    @SerializedName("fuel_start") val fuelStart: Double? = null,
+    @SerializedName("return_start_time") val returnStartTime: String? = null
+)
+
+data class ReturnArrivalBody(
+    @SerializedName("odometer_end") val odometerEnd: Double,
+    @SerializedName("fuel_end") val fuelEnd: Double,
+    @SerializedName("return_arrival_location") val returnArrivalLocation: String,
+    @SerializedName("fuel_used") val fuelUsed: Double,
+    @SerializedName("notes") val notes: String? = null
+)
+
+data class CompleteBody(
+    @SerializedName("odometer_end") val odometerEnd: Double,
+    @SerializedName("fuel_end") val fuelEnd: Double,
+    @SerializedName("fuel_used") val fuelUsed: Double,
+    @SerializedName("completion_notes") val completionNotes: String? = null
+)
 data class ItineraryLegDto(
     val odometer_start: Double, // Required - odometer reading at departure
     val odometer: Double,
@@ -351,4 +408,12 @@ data class TripSubmissionRequest(
     @SerializedName("total_fuel_used") val total_fuel_used: Double,
     @SerializedName("total_fuel_purchased") val total_fuel_purchased: Double?,
     @SerializedName("notes") val notes: String?
+)
+
+// Single trip return start request
+data class SingleTripReturnStartRequest(
+    val odometer_start: Double,
+    val fuel_start: Double,
+    val return_start_time: String,
+    val return_start_location: String
 ) 
