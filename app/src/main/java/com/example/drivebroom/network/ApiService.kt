@@ -66,8 +66,27 @@ interface ApiService {
         @Body body: LegCompletionRequest
     ): retrofit2.Response<Unit>
 
+    // New endpoints for return flow
+    @POST("trips/{tripId}/legs/{legId}/return-start")
+    suspend fun startReturn(
+        @Path("tripId") tripId: Int,
+        @Path("legId") legId: Int,
+        @Body body: ReturnStartRequest
+    ): retrofit2.Response<Unit>
+
+    @POST("trips/{tripId}/legs/{legId}/return-arrive")
+    suspend fun arriveAtBase(
+        @Path("tripId") tripId: Int,
+        @Path("legId") legId: Int,
+        @Body body: ReturnArrivalRequest
+    ): retrofit2.Response<Unit>
+
     @GET("trips/{tripId}/legs")
     suspend fun getTripLegs(@Path("tripId") tripId: Int): List<RawSharedTripLeg>
+    
+    // Debug endpoint to see raw database state
+    @GET("trips/{tripId}/debug-legs")
+    suspend fun getDebugTripLegs(@Path("tripId") tripId: Int): retrofit2.Response<Unit>
 
     // Finalize full trip (single or shared) via unified endpoint
     @POST("trips/{tripId}/submit")
@@ -235,8 +254,8 @@ data class TripStop(
 
 data class SharedTripLeg(
     val leg_id: Int,
-    val stop_id: Int,
-    val team_name: String,
+    val stop_id: Int?,
+    val team_name: String?,
     val destination: String,
     val purpose: String? = null, // Purpose for this specific leg
     val passengers: List<String>?,
@@ -251,14 +270,15 @@ data class SharedTripLeg(
     val arrival_time: String?,
     val departure_location: String? = null,
     val arrival_location: String? = null,
-    val status: String // "pending", "in_progress", "completed"
+    val status: String, // "pending", "approved", "on_route", "arrived", "returning", "completed"
+    val return_to_base: Boolean = false // NEW: Indicates if driver must return to base after this leg
 )
 
 // Raw DTO to handle backend returning passengers as objects
 data class RawSharedTripLeg(
     val leg_id: Int,
-    val stop_id: Int,
-    val team_name: String,
+    val stop_id: Int?,
+    val team_name: String?,
     val destination: String,
     val purpose: String? = null,
     val passengers: com.google.gson.JsonElement?,
@@ -273,7 +293,8 @@ data class RawSharedTripLeg(
     val arrival_time: String?,
     val departure_location: String? = null,
     val arrival_location: String? = null,
-    val status: String
+    val status: String, // "pending", "approved", "on_route", "arrived", "returning", "completed"
+    val return_to_base: Boolean = false // NEW: Indicates if driver must return to base after this leg
 )
 
 // API endpoints for shared trip leg execution
@@ -304,6 +325,23 @@ data class LegCompletionRequest(
     @SerializedName("fuel_used") val fuel_used: Double,
     @SerializedName("fuel_purchased") val fuel_purchased: Double?,
     @SerializedName("notes") val notes: String?
+)
+
+// New data classes for return flow
+data class ReturnStartRequest(
+    val odometer_start: Double,
+    val fuel_start: Double,
+    val return_start_time: String,
+    val return_start_location: String
+)
+
+data class ReturnArrivalRequest(
+    val odometer_end: Double,
+    val fuel_end: Double,
+    val return_arrival_time: String,
+    val return_arrival_location: String,
+    val fuel_used: Double? = null,
+    val notes: String? = null
 )
 
 data class TripSubmissionRequest(

@@ -102,6 +102,7 @@ fun TripDetailsScreen(
     // Passenger selections for single trip (visual parity with shared trip)
     var confirmedPassengerSet by remember { mutableStateOf<Set<String>>(emptySet()) }
     var droppedPassengerSet by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var notes by remember { mutableStateOf("") }
 
     // Clear form fields when trip changes (trip details are already loaded by MainActivity)
     LaunchedEffect(tripDetails.id) {
@@ -113,6 +114,7 @@ fun TripDetailsScreen(
         fuelBalanceEndInput = ""
         odometerArrivalInput = ""
         currentArrivalOdometer = ""
+        notes = ""
         lastFuelBalanceStart = null
         storedFuelPurchased = 0.0 // Clear stored fuel purchased
         storedFuelBalanceEnd = 0.0 // Clear stored fuel balance end
@@ -561,9 +563,10 @@ fun TripDetailsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
-                        value = "", // Notes
-                        onValueChange = { },
-                        label = { Text("Notes") },
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Notes (Optional)") },
+                        placeholder = { Text("Enter any additional notes or comments") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -649,7 +652,7 @@ fun TripDetailsScreen(
                             arrivalTime = timeForDisplay,
                             arrivalLocation = arrivalLocation,
                             fuelPurchased = fuelPurchasedValue,
-                            notes = null
+                            notes = notes.takeIf { it.isNotBlank() }
                         )
                         showArrivalDialog = false
                         canArrive = false
@@ -657,6 +660,7 @@ fun TripDetailsScreen(
                         currentArrivalOdometer = "" // Clear the input
                         fuelBalanceEndInput = "" // Clear the fuel balance end input
                         fuelPurchasedInput = "" // Clear the fuel purchased input
+                        notes = "" // Clear the notes field
                         droppedPassengerSet = emptySet()
                     } else {
                         val msg = when {

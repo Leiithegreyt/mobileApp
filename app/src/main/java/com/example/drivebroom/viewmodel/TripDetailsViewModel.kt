@@ -184,7 +184,7 @@ class TripDetailsViewModel(
                         }
                         val minimal = com.example.drivebroom.network.TripDetails(
                             id = tripId,
-                            status = "approved",
+                            status = "pending",
                             travel_date = java.time.LocalDate.now().toString(),
                             date_of_request = java.time.LocalDate.now().toString(),
                             travel_time = java.time.LocalTime.now().toString(),
@@ -220,6 +220,20 @@ class TripDetailsViewModel(
             try {
                 android.util.Log.d("TripDetailsViewModel", "=== LOADING TRIP LEGS (UNIFIED) ===")
                 android.util.Log.d("TripDetailsViewModel", "Loading legs for trip ID: $tripId")
+                android.util.Log.d("TripDetailsViewModel", "Current time: ${System.currentTimeMillis()}")
+
+                // Test debug endpoint on initial load
+                android.util.Log.d("TripDetailsViewModel", "=== ABOUT TO CALL DEBUG ENDPOINT ===")
+                try {
+                    android.util.Log.d("TripDetailsViewModel", "=== TESTING DEBUG ENDPOINT ON LOAD ===")
+                    android.util.Log.d("TripDetailsViewModel", "Calling repository.getDebugTripLegs($tripId)")
+                    val debugResponse = repository.getDebugTripLegs(tripId)
+                    android.util.Log.d("TripDetailsViewModel", "Debug response on load: $debugResponse")
+                    android.util.Log.d("TripDetailsViewModel", "=== DEBUG ENDPOINT CALL COMPLETED ===")
+                } catch (e: Exception) {
+                    android.util.Log.e("TripDetailsViewModel", "Debug endpoint error on load: ${e.message}")
+                    e.printStackTrace()
+                }
 
                 val legs = repository.getTripLegs(tripId)
                 android.util.Log.d("TripDetailsViewModel", "Loaded ${legs.size} legs")
@@ -245,14 +259,9 @@ class TripDetailsViewModel(
                 }
                 
                 _sharedTripLegs.value = legs
-                // Set current leg to first pending leg
-                val firstPendingIndex = legs.indexOfFirst { it.status == "pending" }
-                if (firstPendingIndex >= 0) {
-                    _currentLegIndex.value = firstPendingIndex
-                    android.util.Log.d("TripDetailsViewModel", "Set current leg index to: $firstPendingIndex")
-                } else {
-                    android.util.Log.d("TripDetailsViewModel", "No pending legs found")
-                }
+                // Don't automatically set current leg index - let UI handle leg selection
+                // This prevents race conditions between automatic selection and manual selection
+                android.util.Log.d("TripDetailsViewModel", "Legs loaded successfully - UI will handle leg selection")
                 
                 // Debug: Check if the current leg status was updated
                 val currentLeg = getCurrentLeg()
@@ -550,7 +559,19 @@ class TripDetailsViewModel(
                         
                         // Reload shared trip legs to get updated status
                         android.util.Log.d("TripDetailsViewModel", "Reloading shared trip legs after departure...")
-                        loadSharedTripLegs(tripId)
+                        
+                        // Debug: Call debug endpoint to see raw database state
+                        try {
+                            android.util.Log.d("TripDetailsViewModel", "=== CALLING DEBUG ENDPOINT ===")
+                            val debugResponse = repository.getDebugTripLegs(safeTripId)
+                            android.util.Log.d("TripDetailsViewModel", "Debug response: $debugResponse")
+                        } catch (e: Exception) {
+                            android.util.Log.e("TripDetailsViewModel", "Debug endpoint error: ${e.message}")
+                        }
+                        
+                        // Add a small delay to ensure backend has updated the database
+                        kotlinx.coroutines.delay(500)
+                        loadSharedTripLegs(safeTripId)
                         
                         // Show notification for leg departure
                         context?.let { ctx ->
@@ -559,7 +580,7 @@ class TripDetailsViewModel(
                             currentLeg?.let { leg ->
                                 notificationManager.showLegCompletedNotification(
                                     legNumber = _currentLegIndex.value + 1,
-                                    teamName = leg.team_name
+                                    teamName = leg.team_name ?: "Unknown Team"
                                 )
                             }
                         }
@@ -569,23 +590,30 @@ class TripDetailsViewModel(
                         android.util.Log.e("TripDetailsViewModel", "=== LEG DEPARTURE FAILED ===")
                         android.util.Log.e("TripDetailsViewModel", "Failed to depart leg ID: $legId")
                         android.util.Log.e("TripDetailsViewModel", "Error: ${it.message}")
-                        // Fallback: if unified leg endpoint returns 404, try single-trip departure
+                        
+                        // Handle authentication errors specifically
                         val httpCode = (it as? retrofit2.HttpException)?.code()
-                        if (httpCode == 404) {
-                            android.util.Log.w("TripDetailsViewModel", "Leg depart 404 - attempting single-trip /trips/{id}/departure fallback")
-                            viewModelScope.launch {
-                                val dep = repository.logDeparture(safeTripId, DepartureBody(odometerStart, fuelStart))
-                                _actionState.value = dep.fold(
-                                    onSuccess = {
-                                        loadTripDetails(safeTripId)
-                                        TripActionState.Success
-                                    },
-                                    onFailure = { TripActionState.Error(it.message ?: "Departure failed") }
-                                )
-                            }
-                            TripActionState.Loading
+                        if (httpCode == 401) {
+                            android.util.Log.e("TripDetailsViewModel", "Authentication failed - user needs to re-login")
+                            TripActionState.Error("Your session has expired. Please log in again.")
                         } else {
-                            TripActionState.Error(it.message ?: "Leg departure failed")
+                            // Fallback: if unified leg endpoint returns 404, try single-trip departure
+                            if (httpCode == 404) {
+                                android.util.Log.w("TripDetailsViewModel", "Leg depart 404 - attempting single-trip /trips/{id}/departure fallback")
+                                viewModelScope.launch {
+                                    val dep = repository.logDeparture(safeTripId, DepartureBody(odometerStart, fuelStart))
+                                    _actionState.value = dep.fold(
+                                        onSuccess = {
+                                            loadTripDetails(safeTripId)
+                                            TripActionState.Success
+                                        },
+                                        onFailure = { TripActionState.Error(it.message ?: "Departure failed") }
+                                    )
+                                }
+                                TripActionState.Loading
+                            } else {
+                                TripActionState.Error(it.message ?: "Leg departure failed")
+                            }
                         } 
                     }
                 )
@@ -640,10 +668,11 @@ class TripDetailsViewModel(
                                 timeArrivalDisplay = arrivalTime
                             ) else list
                         }
-                        // Immediately complete the leg after successful arrival
-                        android.util.Log.d("TripDetailsViewModel", "Completing leg after arrival...")
-                        completeLeg(safeTripId, legId, odometerEnd, fuelEnd, fuelPurchased, notes)
-                        TripActionState.Loading 
+                        // Don't complete the leg automatically - let user choose Return to Base or Continue to Next
+                        android.util.Log.d("TripDetailsViewModel", "Leg arrived successfully - waiting for user choice")
+                        // Refresh shared trip legs to get updated leg status
+                        loadSharedTripLegs(safeTripId)
+                        TripActionState.Success 
                     },
                     onFailure = { 
                         android.util.Log.e("TripDetailsViewModel", "=== LEG ARRIVAL FAILED ===")
@@ -685,7 +714,7 @@ class TripDetailsViewModel(
                 val currentLeg = getCurrentLeg()
                 val odometerStart = currentLeg?.odometer_start ?: 0.0
                 val fuelStart = currentLeg?.fuel_start ?: 0.0
-                val distanceTravelled = odometerEnd - odometerStart
+                val distanceTravelled = maxOf(0.0, odometerEnd - odometerStart) // Ensure distance is not negative
                 // Calculate fuel used correctly: fuelStart + fuelPurchased - fuelEnd
                 val fuelPurchasedValue = fuelPurchased ?: 0.0
                 val fuelUsed = fuelStart + fuelPurchasedValue - fuelEnd
@@ -727,7 +756,7 @@ class TripDetailsViewModel(
                             currentLeg?.let { leg ->
                                 notificationManager.showLegCompletedNotification(
                                     legNumber = _currentLegIndex.value + 1,
-                                    teamName = leg.team_name
+                                    teamName = leg.team_name ?: "Unknown Team"
                                 )
                             }
                         }
@@ -751,6 +780,136 @@ class TripDetailsViewModel(
                 )
             } catch (e: Exception) {
                 _actionState.value = TripActionState.Error(e.message ?: "Leg completion failed")
+            }
+        }
+    }
+
+    // New methods for return flow
+    fun startReturn(
+        tripId: Int,
+        legId: Int,
+        odometerStart: Double,
+        fuelStart: Double,
+        returnStartTime: String = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a")),
+        returnStartLocation: String = "ISATU Miagao Campus"
+    ) {
+        viewModelScope.launch {
+            _actionState.value = TripActionState.Loading
+            try {
+                val safeTripId = if (tripId > 0) tripId else lastLoadedTripId
+                android.util.Log.d("TripDetailsViewModel", "=== STARTING RETURN TO BASE ===")
+                android.util.Log.d("TripDetailsViewModel", "Trip ID: $safeTripId, Leg ID: $legId")
+                
+                val request = com.example.drivebroom.network.ReturnStartRequest(
+                    odometer_start = odometerStart,
+                    fuel_start = fuelStart,
+                    return_start_time = convertTo24Hour(returnStartTime),
+                    return_start_location = returnStartLocation
+                )
+                
+                val result = repository.startReturn(safeTripId, legId, request)
+                _actionState.value = result.fold(
+                    onSuccess = { 
+                        android.util.Log.d("TripDetailsViewModel", "=== RETURN START SUCCESS ===")
+                        loadSharedTripLegs(tripId)
+                        TripActionState.Success 
+                    },
+                    onFailure = { 
+                        android.util.Log.e("TripDetailsViewModel", "=== RETURN START FAILED ===")
+                        TripActionState.Error(it.message ?: "Return start failed") 
+                    }
+                )
+            } catch (e: Exception) {
+                _actionState.value = TripActionState.Error(e.message ?: "Return start failed")
+            }
+        }
+    }
+
+    fun arriveAtBase(
+        tripId: Int,
+        legId: Int,
+        odometerEnd: Double,
+        fuelEnd: Double,
+        returnArrivalTime: String = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a")),
+        returnArrivalLocation: String = "ISATU Miagao Campus",
+        fuelUsed: Double? = null,
+        notes: String? = null
+    ) {
+        viewModelScope.launch {
+            _actionState.value = TripActionState.Loading
+            try {
+                val safeTripId = if (tripId > 0) tripId else lastLoadedTripId
+                android.util.Log.d("TripDetailsViewModel", "=== ARRIVING AT BASE ===")
+                android.util.Log.d("TripDetailsViewModel", "Trip ID: $safeTripId, Leg ID: $legId")
+                
+                // Validate odometer reading - end must be >= start
+                val currentLeg = getCurrentLeg()
+                val odometerStart = currentLeg?.odometer_start ?: 0.0
+                
+                // Allow small differences due to backend data inconsistency
+                val odometerDifference = odometerStart - odometerEnd
+                if (odometerEnd < odometerStart && odometerDifference > 5.0) {
+                    android.util.Log.e("TripDetailsViewModel", "Invalid odometer reading: end ($odometerEnd) < start ($odometerStart), difference: $odometerDifference")
+                    _actionState.value = TripActionState.Error("End odometer reading ($odometerEnd) must be greater than or equal to start reading ($odometerStart). Please check your odometer values.")
+                    return@launch
+                } else if (odometerDifference > 0.0) {
+                    android.util.Log.w("TripDetailsViewModel", "Warning: odometer end ($odometerEnd) < start ($odometerStart), but difference is small ($odometerDifference). Allowing due to backend data inconsistency.")
+                }
+                
+                val request = com.example.drivebroom.network.ReturnArrivalRequest(
+                    odometer_end = odometerEnd,
+                    fuel_end = fuelEnd,
+                    return_arrival_time = convertTo24Hour(returnArrivalTime),
+                    return_arrival_location = returnArrivalLocation,
+                    fuel_used = fuelUsed,
+                    notes = notes
+                )
+                
+                val result = repository.arriveAtBase(safeTripId, legId, request)
+                _actionState.value = result.fold(
+                    onSuccess = { 
+                        android.util.Log.d("TripDetailsViewModel", "=== RETURN ARRIVAL SUCCESS ===")
+                        loadSharedTripLegs(tripId)
+                        TripActionState.Success 
+                    },
+                    onFailure = { 
+                        android.util.Log.e("TripDetailsViewModel", "=== RETURN ARRIVAL FAILED ===")
+                        TripActionState.Error(it.message ?: "Return arrival failed") 
+                    }
+                )
+            } catch (e: Exception) {
+                _actionState.value = TripActionState.Error(e.message ?: "Return arrival failed")
+            }
+        }
+    }
+
+    fun continueToNextLeg(
+        tripId: Int,
+        legId: Int,
+        odometerEnd: Double,
+        fuelEnd: Double,
+        fuelPurchased: Double? = null,
+        notes: String? = null
+    ) {
+        viewModelScope.launch {
+            _actionState.value = TripActionState.Loading
+            try {
+                val safeTripId = if (tripId > 0) tripId else lastLoadedTripId
+                android.util.Log.d("TripDetailsViewModel", "Continue to next leg using tripId=$safeTripId (original=$tripId), legId=$legId")
+                
+                // Get the current leg data to use actual values
+                val currentLeg = getCurrentLeg()
+                val actualOdometerEnd = if (odometerEnd > 0.0) odometerEnd else (currentLeg?.odometer_end ?: 0.0)
+                val actualFuelEnd = if (fuelEnd > 0.0) fuelEnd else (currentLeg?.fuel_end ?: 0.0)
+                
+                android.util.Log.d("TripDetailsViewModel", "Using odometer end: $actualOdometerEnd, fuel end: $actualFuelEnd")
+                
+                // Complete the current leg with actual values
+                completeLeg(safeTripId, legId, actualOdometerEnd, actualFuelEnd, fuelPurchased, notes)
+                
+            } catch (e: Exception) {
+                android.util.Log.e("TripDetailsViewModel", "Exception in continueToNextLeg: ${e.message}")
+                _actionState.value = TripActionState.Error("Continue to next leg failed: ${e.message}")
             }
         }
     }
@@ -841,8 +1000,18 @@ class TripDetailsViewModel(
             return false
         }
         
-        val isLast = currentIndex >= legs.size - 1
-        android.util.Log.d("TripDetailsViewModel", "Is last leg: $isLast")
+        // NEW LOGIC: A leg is "last" only if ALL OTHER legs are completed
+        // This allows flexible leg ordering - you can do legs in any order
+        val otherLegs = legs.filterIndexed { index, _ -> index != currentIndex }
+        val allOtherLegsCompleted = otherLegs.all { it.status == "completed" }
+        
+        android.util.Log.d("TripDetailsViewModel", "Current leg: ID=${legs[currentIndex].leg_id}")
+        android.util.Log.d("TripDetailsViewModel", "Other legs: ${otherLegs.map { "ID=${it.leg_id}, status=${it.status}" }}")
+        android.util.Log.d("TripDetailsViewModel", "All other legs completed: $allOtherLegsCompleted")
+        
+        val isLast = allOtherLegsCompleted
+        
+        android.util.Log.d("TripDetailsViewModel", "Final isLast result: $isLast")
         return isLast
     }
 

@@ -40,6 +40,9 @@ fun SharedTripLegExecutionScreen(
     onLegDeparture: (Int, Double, Double, List<String>, String, String, String?) -> Unit,
     onLegArrival: (Int, Double, Double?, Double, List<String>, String, String, Double?, String?) -> Unit,
     onLegComplete: (Int, Double, Double, Double?, String?) -> Unit,
+    onReturnStart: (Int, Double, Double, String, String) -> Unit,
+    onReturnArrival: (Int, Double, Double, String, String, Double?, String?) -> Unit,
+    onContinueToNext: (Int, Double, Double, Double?, String?) -> Unit,
     onNextLeg: () -> Unit,
     onTripComplete: () -> Unit,
     actionState: TripActionState,
@@ -50,9 +53,12 @@ fun SharedTripLegExecutionScreen(
     var fuelStart by remember { mutableStateOf("") }
     var showDepartureDialog by remember { mutableStateOf(false) }
     var showArrivalDialog by remember { mutableStateOf(false) }
+    var showReturnStartDialog by remember { mutableStateOf(false) }
+    var showReturnArrivalDialog by remember { mutableStateOf(false) }
     var showNextLegPrompt by remember { mutableStateOf(false) }
     var legCompleted by remember { mutableStateOf(false) }
     var showTripCompletedDialog by remember { mutableStateOf(false) }
+    var showPreviousLegsDialog by remember { mutableStateOf(false) }
 
     // Debug when the composable receives new parameters
     LaunchedEffect(currentLeg?.leg_id, currentLegIndex) {
@@ -74,18 +80,7 @@ fun SharedTripLegExecutionScreen(
     }
     
     var departureLocation by remember { 
-        mutableStateOf(
-            if (currentLegIndex == 0) {
-                // First leg: always start from ISATU Miagao Campus
-                "ISATU Miagao Campus"
-            } else {
-                // Subsequent legs: start from previous leg's destination
-                val previousLeg = if (currentLegIndex - 1 < sharedTripLegs.size) {
-                    sharedTripLegs[currentLegIndex - 1]
-                } else null
-                previousLeg?.destination ?: "ISATU Miagao Campus"
-            }
-        )
+        mutableStateOf("ISATU Miagao Campus") // Default to base for any leg clicked first
     }
     
         // Auto-fill when screen becomes visible (in case leg data wasn't available initially)
@@ -94,18 +89,33 @@ fun SharedTripLegExecutionScreen(
             android.util.Log.d("SharedTripLegExecutionScreen", "sharedTripLegs changed, size: ${sharedTripLegs.size}")
             android.util.Log.d("SharedTripLegExecutionScreen", "currentLegIndex: $currentLegIndex")
             
-            // Update departure location based on chained leg logic
+            // Update departure location based on smart routing logic
             departureLocation = if (currentLegIndex == 0) {
                 // First leg: always start from ISATU Miagao Campus
                 "ISATU Miagao Campus"
             } else {
-                // Subsequent legs: start from previous leg's destination
-                val previousLeg = if (currentLegIndex - 1 < sharedTripLegs.size) {
-                    sharedTripLegs[currentLegIndex - 1]
-                } else null
-                val newLocation = previousLeg?.destination ?: "ISATU Miagao Campus"
-                android.util.Log.d("SharedTripLegExecutionScreen", "Updated departureLocation to: $newLocation (from previous leg: ${previousLeg?.destination})")
-                newLocation
+                // Check if any previous legs have been completed
+                val hasCompletedPreviousLegs = sharedTripLegs.take(currentLegIndex).any { it.status in listOf("completed", "arrived") }
+                
+                if (hasCompletedPreviousLegs) {
+                    // If previous legs are completed, use smart routing
+                    val previousLeg = if (currentLegIndex - 1 < sharedTripLegs.size) {
+                        sharedTripLegs[currentLegIndex - 1]
+                    } else null
+                    
+                    val newLocation = if (previousLeg?.return_to_base == true) {
+                        // Previous leg required return to base, so start from base
+                        "ISATU Miagao Campus"
+                    } else {
+                        // Continue from previous leg's destination
+                        previousLeg?.destination ?: "ISATU Miagao Campus"
+                    }
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Updated departureLocation to: $newLocation (previous leg return_to_base: ${previousLeg?.return_to_base}, destination: ${previousLeg?.destination})")
+                    newLocation
+                } else {
+                    // If no previous legs are completed, this is the first leg being executed
+                    "ISATU Miagao Campus"
+                }
             }
             
             if (sharedTripLegs.isNotEmpty() && currentLegIndex > 0) {
@@ -237,16 +247,31 @@ fun SharedTripLegExecutionScreen(
         odometerStart = previousLegOdometerEnd
         fuelStart = previousLegFuelEnd
         
-        // Chain departure locations: first leg starts at school, subsequent legs start at previous destination
+        // Chain departure locations: check return_to_base flag for smart routing
         departureLocation = if (currentLegIndex == 0) {
             // First leg: always start from ISATU Miagao Campus
             "ISATU Miagao Campus"
         } else {
-            // Subsequent legs: start from previous leg's destination (arrival location)
-            val previousLeg = if (currentLegIndex - 1 < sharedTripLegs.size) {
-                sharedTripLegs[currentLegIndex - 1]
-            } else null
-            previousLeg?.destination ?: "ISATU Miagao Campus"
+            // Check if any previous legs have been completed
+            val hasCompletedPreviousLegs = sharedTripLegs.take(currentLegIndex).any { it.status in listOf("completed", "arrived") }
+            
+            if (hasCompletedPreviousLegs) {
+                // If previous legs are completed, use smart routing
+                val previousLeg = if (currentLegIndex - 1 < sharedTripLegs.size) {
+                    sharedTripLegs[currentLegIndex - 1]
+                } else null
+                
+                if (previousLeg?.return_to_base == true) {
+                    // Previous leg required return to base, so start from base
+                    "ISATU Miagao Campus"
+                } else {
+                    // Continue from previous leg's destination
+                    previousLeg?.destination ?: "ISATU Miagao Campus"
+                }
+            } else {
+                // If no previous legs are completed, this is the first leg being executed
+                "ISATU Miagao Campus"
+            }
         }
         
         android.util.Log.d("SharedTripLegExecutionScreen", "=== DEPARTURE LOCATION DEBUG ===")
@@ -257,7 +282,12 @@ fun SharedTripLegExecutionScreen(
         manifestOverrideReason = ""
         odometerEnd = ""
         fuelUsed = ""
-        arrivalLocation = currentLeg?.arrival_location ?: (currentLeg?.destination ?: "")
+        // Set arrival location based on return_to_base flag
+        arrivalLocation = if (currentLeg?.return_to_base == true) {
+            "ISATU Miagao Campus"
+        } else {
+            currentLeg?.arrival_location ?: (currentLeg?.destination ?: "")
+        }
         arrivalTime = ""
         fuelEnd = ""
         fuelPurchased = ""
@@ -286,6 +316,17 @@ fun SharedTripLegExecutionScreen(
                     }
                 },
                 actions = {
+                    // Back to previous legs button
+                    IconButton(
+                        onClick = {
+                            android.util.Log.d("SharedTripLegExecutionScreen", "=== PREVIOUS LEGS BUTTON CLICKED ===")
+                            showPreviousLegsDialog = true
+                        }
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = "View Previous Legs")
+                    }
+                    
+                    // Refresh button
                     IconButton(
                         onClick = {
                             // Force refresh shared trip data
@@ -461,10 +502,35 @@ fun SharedTripLegExecutionScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = when (currentLeg?.status) {
                                 "completed" -> MaterialTheme.colorScheme.primary
-                                "in_progress" -> MaterialTheme.colorScheme.secondary
+                                "on_route" -> MaterialTheme.colorScheme.secondary
+                                "arrived" -> MaterialTheme.colorScheme.tertiary
+                                "returning" -> MaterialTheme.colorScheme.error
+                                "pending" -> MaterialTheme.colorScheme.onSurfaceVariant
                                 else -> MaterialTheme.colorScheme.onSurface
                             }
                         )
+                        
+                        // Return to base indicator
+                        if (currentLeg?.return_to_base == true) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Return to Base",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Return to Base Required",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                         
                         // Show arrival location if available
                         currentLeg?.arrival_location?.let { arrLoc ->
@@ -528,20 +594,33 @@ fun SharedTripLegExecutionScreen(
                 // Debug information for button states
                 LaunchedEffect(currentLeg?.status, actionState) {
                     android.util.Log.d("SharedTripLegExecutionScreen", "=== BUTTON STATE DEBUG ===")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "currentLeg: $currentLeg")
                     android.util.Log.d("SharedTripLegExecutionScreen", "currentLeg?.status: '${currentLeg?.status}'")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "currentLeg?.leg_id: ${currentLeg?.leg_id}")
                     android.util.Log.d("SharedTripLegExecutionScreen", "actionState: $actionState")
                     android.util.Log.d("SharedTripLegExecutionScreen", "actionState is Loading: ${actionState is TripActionState.Loading}")
-                    android.util.Log.d("SharedTripLegExecutionScreen", "Depart enabled: ${(currentLeg?.status == "pending" || currentLeg?.status == "approved") && actionState !is TripActionState.Loading}")
-                    android.util.Log.d("SharedTripLegExecutionScreen", "Arrive enabled: ${currentLeg?.status == "in_progress" && actionState !is TripActionState.Loading}")
-                    android.util.Log.d("SharedTripLegExecutionScreen", "Next Leg enabled: ${legCompleted && actionState !is TripActionState.Loading}")
                     android.util.Log.d("SharedTripLegExecutionScreen", "legCompleted state: $legCompleted")
                     android.util.Log.d("SharedTripLegExecutionScreen", "isLastLeg: $isLastLeg")
-                    android.util.Log.d("SharedTripLegExecutionScreen", "Will show: ${if (isLastLeg) "Complete Trip" else "Next Leg"} button")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "totalLegs: $totalLegs")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "currentLegIndex: $currentLegIndex")
                     
-                    // Track status changes
-                    if (currentLeg?.status == "completed") {
-                        android.util.Log.d("SharedTripLegExecutionScreen", "⚠️ LEG STATUS CHANGED TO COMPLETED - This might be unexpected!")
-                        android.util.Log.d("SharedTripLegExecutionScreen", "Leg ID: ${currentLeg?.leg_id}, Destination: ${currentLeg?.destination}")
+                    // Check what button should be shown
+                    android.util.Log.d("SharedTripLegExecutionScreen", "=== BUTTON STATUS DEBUG ===")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Current leg ID: ${currentLeg?.leg_id}")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Current leg status: '${currentLeg?.status}'")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Total legs: $totalLegs")
+                    
+                    when (currentLeg?.status) {
+                        "pending", "approved" -> android.util.Log.d("SharedTripLegExecutionScreen", "✅ Should show DEPART button")
+                        "on_route" -> android.util.Log.d("SharedTripLegExecutionScreen", "✅ Should show ARRIVED button")
+                        "arrived" -> {
+                            android.util.Log.d("SharedTripLegExecutionScreen", "✅ Should show RETURN TO BASE / CONTINUE TO NEXT buttons")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Return to base flag: ${currentLeg?.return_to_base}")
+                        }
+                        "returning" -> android.util.Log.d("SharedTripLegExecutionScreen", "✅ Should show ARRIVED AT BASE button")
+                        "completed" -> android.util.Log.d("SharedTripLegExecutionScreen", "✅ Should show NEXT LEG / COMPLETE TRIP button")
+                        else -> android.util.Log.d("SharedTripLegExecutionScreen", "❌ UNKNOWN STATUS: '${currentLeg?.status}' - Will show default text")
                     }
                 }
                 
@@ -551,69 +630,138 @@ fun SharedTripLegExecutionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    Button(
-                        onClick = { showDepartureDialog = true },
-                        enabled = (currentLeg?.status == "pending" || currentLeg?.status == "approved") && actionState !is TripActionState.Loading,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Depart")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = { 
-                            android.util.Log.d("SharedTripLegExecutionScreen", "=== ARRIVE BUTTON CLICKED ===")
-                            android.util.Log.d("SharedTripLegExecutionScreen", "Current leg status: '${currentLeg?.status}'")
-                            android.util.Log.d("SharedTripLegExecutionScreen", "Action state: $actionState")
-                            showArrivalDialog = true 
-                        },
-                        enabled = currentLeg?.status == "in_progress" && actionState !is TripActionState.Loading,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Arrive")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    // Show appropriate button based on leg status
+                    // New status-based button logic
                     when (currentLeg?.status) {
+                        "pending", "approved" -> {
+                            Button(
+                                onClick = { showDepartureDialog = true },
+                                enabled = actionState !is TripActionState.Loading,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Depart")
+                            }
+                        }
+                        "on_route" -> {
+                            OutlinedButton(
+                                onClick = { 
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "=== ARRIVE BUTTON CLICKED ===")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "Current leg status: '${currentLeg?.status}'")
+                                    showArrivalDialog = true 
+                                },
+                                enabled = actionState !is TripActionState.Loading,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Arrived")
+                            }
+                        }
                         "arrived" -> {
-                            if (!isLastLeg) {
-                                // Show Complete Leg button for arrived status (not last leg)
-                                OutlinedButton(
+                            // Show appropriate options based on whether this is the last leg
+                            android.util.Log.d("SharedTripLegExecutionScreen", "=== ARRIVED STATUS BUTTON LOGIC ===")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Current leg ID: ${currentLeg?.leg_id}")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Total legs: $totalLegs")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "isLastLeg: $isLastLeg")
+                            
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Button(
                                     onClick = { 
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "=== COMPLETE LEG BUTTON CLICKED ===")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Leg status is 'arrived', showing arrival dialog")
-                                        showArrivalDialog = true 
+                                        android.util.Log.d("SharedTripLegExecutionScreen", "=== RETURN TO BASE BUTTON CLICKED ===")
+                                        // Auto-fill with arrival values for return start
+                                        odometerStart = currentLeg?.odometer_end?.toString() ?: ""
+                                        fuelStart = currentLeg?.fuel_end?.toString() ?: ""
+                                        android.util.Log.d("SharedTripLegExecutionScreen", "Auto-filled return start: odo=${odometerStart}, fuel=${fuelStart}")
+                                        showReturnStartDialog = true
                                     },
                                     enabled = actionState !is TripActionState.Loading,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Complete Leg")
+                                    Text("Return to Base")
                                 }
-                            } else {
-                                // Show Complete Trip button for last leg with arrived status
-                                OutlinedButton(
-                                    onClick = { 
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "=== COMPLETE TRIP BUTTON CLICKED ===")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "This is the last leg, completing trip")
-                                        showTripCompletedDialog = true
-                                    },
-                                    enabled = actionState !is TripActionState.Loading,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Complete Trip")
+                                
+                                // Only show "Continue to Next" if this is NOT the last leg
+                                // Use the ViewModel's isLastLeg() function which considers completion status
+                                val shouldShowContinueToNext = !isLastLeg
+                                
+                                android.util.Log.d("SharedTripLegExecutionScreen", "=== CONTINUE TO NEXT BUTTON LOGIC ===")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "currentLegIndex: $currentLegIndex")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "totalLegs: $totalLegs")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "shouldShowContinueToNext: $shouldShowContinueToNext")
+                                android.util.Log.d("SharedTripLegExecutionScreen", "isLastLeg: $isLastLeg")
+                                
+                                if (shouldShowContinueToNext) {
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "Showing Continue to Next button - NOT the last leg")
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = { 
+                                            android.util.Log.d("SharedTripLegExecutionScreen", "=== CONTINUE TO NEXT BUTTON CLICKED ===")
+                                            // Use the actual leg data for completion
+                                            val odometerEnd = currentLeg.odometer_end ?: 0.0
+                                            val fuelEnd = currentLeg.fuel_end ?: 0.0
+                                            android.util.Log.d("SharedTripLegExecutionScreen", "Using leg data - odometer end: $odometerEnd, fuel end: $fuelEnd")
+                                            onContinueToNext(currentLeg.leg_id, odometerEnd, fuelEnd, null, null)
+                                        },
+                                        enabled = actionState !is TripActionState.Loading,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Continue to Next")
+                                    }
+                                } else {
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "NOT showing Continue to Next button - this IS the last leg")
                                 }
                             }
                         }
+                        "returning" -> {
+                            OutlinedButton(
+                                onClick = { 
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "=== ARRIVED AT BASE BUTTON CLICKED ===")
+                                    // Auto-fill with return start values (these should be the same as arrival values)
+                                    odometerEnd = currentLeg?.odometer_end?.toString() ?: ""
+                                    fuelEnd = currentLeg?.fuel_end?.toString() ?: ""
+                                    
+                                    // Auto-calculate fuel used for the ORIGINAL LEG (departure to arrival)
+                                    // This should be the fuel consumed during the actual trip, not the return journey
+                                    val legFuelStart = currentLeg?.fuel_start ?: 0.0
+                                    val legFuelEnd = currentLeg?.fuel_end ?: 0.0
+                                    val legFuelPurchased = currentLeg?.fuel_purchased ?: 0.0
+                                    val calculatedFuelUsed = legFuelStart + legFuelPurchased - legFuelEnd
+                                    fuelUsed = maxOf(0.0, calculatedFuelUsed).toString()
+                                    
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "=== FUEL CALCULATION DEBUG ===")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "currentLeg: $currentLeg")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "legFuelStart (departure): $legFuelStart")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "legFuelEnd (arrival): $legFuelEnd")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "legFuelPurchased: $legFuelPurchased")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "Auto-filled return arrival: odo=${odometerEnd}, fuel=${fuelEnd}")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "Auto-calculated fuel used for LEG: $legFuelStart + $legFuelPurchased - $legFuelEnd = $calculatedFuelUsed")
+                                    android.util.Log.d("SharedTripLegExecutionScreen", "Final fuelUsed string: '$fuelUsed'")
+                                    showReturnArrivalDialog = true
+                                },
+                                enabled = actionState !is TripActionState.Loading,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Arrived at Base")
+                            }
+                        }
                         "completed" -> {
-                            if (!isLastLeg) {
-                                // Show Next Leg button for completed status
+                            // Calculate if there are other incomplete legs at the time of rendering
+                            val otherIncompleteLegs = sharedTripLegs.filter { 
+                                it.leg_id != currentLeg?.leg_id && it.status != "completed" 
+                            }
+                            val hasOtherIncompleteLegs = otherIncompleteLegs.isNotEmpty()
+                            
+                            android.util.Log.d("SharedTripLegExecutionScreen", "=== COMPLETED LEG BUTTON LOGIC ===")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Current leg ID: ${currentLeg?.leg_id}")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Other incomplete legs: ${otherIncompleteLegs.map { "ID=${it.leg_id}, status=${it.status}" }}")
+                            android.util.Log.d("SharedTripLegExecutionScreen", "Has other incomplete legs: $hasOtherIncompleteLegs")
+                            
+                            if (hasOtherIncompleteLegs) {
                                 OutlinedButton(
                                     onClick = { 
                                         android.util.Log.d("SharedTripLegExecutionScreen", "=== NEXT LEG BUTTON CLICKED ===")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Total legs: $totalLegs")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Is last leg: $isLastLeg")
                                         onNextLeg()
-                                        legCompleted = false // Reset for next leg
                                     },
                                     enabled = actionState !is TripActionState.Loading,
                                     modifier = Modifier.weight(1f)
@@ -621,11 +769,9 @@ fun SharedTripLegExecutionScreen(
                                     Text("Next Leg")
                                 }
                             } else {
-                                // Show Complete Trip button for last leg
                                 OutlinedButton(
                                     onClick = { 
                                         android.util.Log.d("SharedTripLegExecutionScreen", "=== COMPLETE TRIP BUTTON CLICKED ===")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "This is the last leg, completing trip")
                                         showTripCompletedDialog = true
                                     },
                                     enabled = actionState !is TripActionState.Loading,
@@ -636,34 +782,29 @@ fun SharedTripLegExecutionScreen(
                             }
                         }
                         else -> {
-                            // Default case - show Next Leg button if not the last leg (for other statuses)
-                            if (!isLastLeg) {
-                                OutlinedButton(
+                            // Default case - show a generic button for unknown status
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Status: ${currentLeg?.status ?: "Unknown"}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Button(
                                     onClick = { 
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "=== NEXT LEG BUTTON CLICKED ===")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Total legs: $totalLegs")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "Is last leg: $isLastLeg")
-                                        onNextLeg()
-                                        legCompleted = false // Reset for next leg
+                                        android.util.Log.d("SharedTripLegExecutionScreen", "=== FALLBACK BUTTON CLICKED ===")
+                                        android.util.Log.d("SharedTripLegExecutionScreen", "Current status: '${currentLeg?.status}'")
+                                        // Try to start the leg as pending or approved
+                                        if (currentLeg?.status == null || currentLeg?.status == "unknown" || currentLeg?.status == "approved") {
+                                            showDepartureDialog = true
+                                        }
                                     },
-                                    enabled = legCompleted && actionState !is TripActionState.Loading,
-                                    modifier = Modifier.weight(1f)
+                                    enabled = actionState !is TripActionState.Loading,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Next Leg")
-                                }
-                            } else {
-                                // Show "Complete Trip" button for last leg
-                                OutlinedButton(
-                                    onClick = { 
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "=== COMPLETE TRIP BUTTON CLICKED ===")
-                                        android.util.Log.d("SharedTripLegExecutionScreen", "This is the last leg, completing trip")
-                                        showTripCompletedDialog = true
-                                    },
-                                    enabled = legCompleted && actionState !is TripActionState.Loading,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Complete Trip")
+                                    Text("Start Leg")
                                 }
                             }
                         }
@@ -953,16 +1094,13 @@ fun SharedTripLegExecutionScreen(
                     } else arrivalTime
                     val arrLoc = if (arrivalLocation.isBlank()) (currentLeg?.destination ?: "") else arrivalLocation
                     if (odoEnd != null && fuelEndValue != null) {
-                        // Call arrival with completion data included
+                        // Call arrival only - let user choose next action
                         val legId = currentLeg?.leg_id ?: 0
                         onLegArrival(legId, odoEnd, fuelUsedValue, fuelEndValue, confirmedPassengers, arrTime, arrLoc, fuelPurchasedValue, notes)
-                        // Immediately mark leg as completed to satisfy trip submission requirements
-                        onLegComplete(legId, odoEnd, fuelEndValue, fuelPurchasedValue, notes)
-                        legCompleted = true // Mark leg as completed
                         showArrivalDialog = false
                     }
                 }) {
-                    Text("Complete Leg & Next")
+                    Text("Arrive")
                 }
             },
             dismissButton = {
@@ -973,6 +1111,129 @@ fun SharedTripLegExecutionScreen(
         )
     }
 
+    // Return Start Dialog
+    if (showReturnStartDialog) {
+        AlertDialog(
+            onDismissRequest = { showReturnStartDialog = false },
+            title = { Text("Return to Base") },
+            text = {
+                Column {
+                    Text("Starting return journey to base.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = odometerStart,
+                        onValueChange = { odometerStart = it },
+                        label = { Text("Odometer Start") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = fuelStart,
+                        onValueChange = { fuelStart = it },
+                        label = { Text("Fuel Level Start") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Auto-filled with arrival values: Odo=${currentLeg?.odometer_end ?: "N/A"}, Fuel=${currentLeg?.fuel_end ?: "N/A"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val odo = odometerStart.toDoubleOrNull()
+                    val fuel = fuelStart.toDoubleOrNull()
+                    if (odo != null && fuel != null) {
+                        val returnTime = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+                        onReturnStart(currentLeg?.leg_id ?: 0, odo, fuel, returnTime, "ISATU Miagao Campus")
+                        showReturnStartDialog = false
+                    }
+                }) {
+                    Text("Start Return")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReturnStartDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Return Arrival Dialog
+    if (showReturnArrivalDialog) {
+        AlertDialog(
+            onDismissRequest = { showReturnArrivalDialog = false },
+            title = { Text("Arrived at Base") },
+            text = {
+                Column {
+                    Text("You have arrived at the base.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = odometerEnd,
+                        onValueChange = { odometerEnd = it },
+                        label = { Text("Odometer End") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = fuelEnd,
+                        onValueChange = { fuelEnd = it },
+                        label = { Text("Fuel Level End") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = fuelUsed,
+                        onValueChange = { fuelUsed = it },
+                        label = { Text("Fuel Used (Auto-calculated)") },
+                        enabled = false, // Make it read-only since it's auto-calculated
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Notes (Optional)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Auto-filled with arrival values: Odo=${currentLeg?.odometer_end ?: "N/A"}, Fuel=${currentLeg?.fuel_end ?: "N/A"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Fuel used auto-calculated for this leg: ${currentLeg?.fuel_start ?: 0} + ${currentLeg?.fuel_purchased ?: 0} - ${currentLeg?.fuel_end ?: 0} = ${fuelUsed}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val odo = odometerEnd.toDoubleOrNull()
+                    val fuel = fuelEnd.toDoubleOrNull()
+                    if (odo != null && fuel != null) {
+                        val arrivalTime = LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+                        val fuelUsedValue = fuelUsed.toDoubleOrNull()
+                        onReturnArrival(currentLeg?.leg_id ?: 0, odo, fuel, arrivalTime, "ISATU Miagao Campus", fuelUsedValue, notes.takeIf { it.isNotBlank() })
+                        showReturnArrivalDialog = false
+                    }
+                }) {
+                    Text("Complete Return")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReturnArrivalDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     // Next Leg Prompt
     if (showNextLegPrompt) {
@@ -1057,6 +1318,136 @@ fun SharedTripLegExecutionScreen(
                     )
                 ) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // Previous Legs Dialog
+    if (showPreviousLegsDialog) {
+        AlertDialog(
+            onDismissRequest = { showPreviousLegsDialog = false },
+            title = { Text("Previous Legs") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 400.dp)
+                ) {
+                    items(sharedTripLegs) { leg ->
+                        val isCurrentLeg = leg.leg_id == currentLeg?.leg_id
+                        val legIndex = sharedTripLegs.indexOf(leg)
+                        
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isCurrentLeg) 
+                                    MaterialTheme.colorScheme.primaryContainer 
+                                else 
+                                    MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Leg ${legIndex + 1}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (isCurrentLeg) {
+                                        Text(
+                                            text = "CURRENT",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                
+                                Text(
+                                    text = leg.destination,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                                
+                                if (leg.team_name != null) {
+                                    Text(
+                                        text = "Team: ${leg.team_name}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                Text(
+                                    text = "Status: ${leg.status.uppercase()}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = when (leg.status) {
+                                        "completed" -> MaterialTheme.colorScheme.primary
+                                        "on_route" -> MaterialTheme.colorScheme.secondary
+                                        "arrived" -> MaterialTheme.colorScheme.tertiary
+                                        "returning" -> MaterialTheme.colorScheme.error
+                                        "pending" -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    },
+                                    fontWeight = FontWeight.Medium
+                                )
+                                
+                                // Show leg data if available
+                                if (leg.odometer_start != null && leg.odometer_end != null) {
+                                    Text(
+                                        text = "Distance: ${leg.odometer_end - leg.odometer_start} km",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                if (leg.fuel_used != null) {
+                                    Text(
+                                        text = "Fuel Used: ${leg.fuel_used} L",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                if (leg.return_to_base == true) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CheckCircle, 
+                                            contentDescription = "Return to Base", 
+                                            tint = MaterialTheme.colorScheme.primary, 
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Return to Base Required", 
+                                            style = MaterialTheme.typography.bodySmall, 
+                                            color = MaterialTheme.colorScheme.primary, 
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showPreviousLegsDialog = false },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text("Close")
                 }
             }
         )

@@ -47,6 +47,8 @@ class NetworkClient(private val tokenManager: TokenManager) {
         
         if (response.code == 401) {
             Log.w("NetworkClient", "Received 401 Unauthorized - clearing token")
+            Log.w("NetworkClient", "Request URL: ${chain.request().url}")
+            Log.w("NetworkClient", "Request headers: ${chain.request().headers}")
             tokenManager.clearToken()
             // The callback will be triggered by clearToken()
         }

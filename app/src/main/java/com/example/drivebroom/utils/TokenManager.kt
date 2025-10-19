@@ -41,7 +41,9 @@ class TokenManager(context: Context) {
         Log.d("TokenManager", "Clearing token")
         sharedPreferences.edit().remove(KEY_TOKEN).apply()
         // Trigger auth failure callback if set
+        Log.d("TokenManager", "Auth failure callback is set: ${onAuthFailureCallback != null}")
         onAuthFailureCallback?.invoke()
+        Log.d("TokenManager", "Auth failure callback invoked")
     }
     
     fun isTokenValid(): Boolean {

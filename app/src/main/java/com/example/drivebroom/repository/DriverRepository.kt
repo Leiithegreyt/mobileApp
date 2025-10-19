@@ -167,7 +167,7 @@ class DriverRepository(val apiService: ApiService) {
                                 
                                 TripDetails(
                                     id = 0,
-                                    status = dataObj.get("status")?.asString ?: "approved",
+                                    status = dataObj.get("status")?.asString ?: "pending",
                                     travel_date = dataObj.get("travel_date")?.asString ?: "",
                                     date_of_request = dataObj.get("date_of_request")?.asString ?: dataObj.get("created_at")?.asString ?: "",
                                     travel_time = dataObj.get("departure_time")?.asString ?: "",
@@ -365,6 +365,29 @@ class DriverRepository(val apiService: ApiService) {
         }
     }
 
+    // Debug endpoint to check raw database state
+    suspend fun getDebugTripLegs(tripId: Int): String {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "=== DEBUG TRIP LEGS ===")
+                Log.d("DriverRepository", "Calling debug endpoint for trip $tripId")
+                val response = apiService.getDebugTripLegs(tripId)
+                Log.d("DriverRepository", "Debug response code: ${response.code()}")
+                val responseBody = if (response.isSuccessful) {
+                    "Success - Response code: ${response.code()} - Debug endpoint working"
+                } else {
+                    "Error - Response code: ${response.code()}"
+                }
+                Log.d("DriverRepository", "Debug response body: $responseBody")
+                responseBody
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Error calling debug endpoint: ${e.message}")
+                e.printStackTrace()
+                "Error: ${e.message}"
+            }
+        }
+    }
+
     // Unified trip legs (single + shared)
     suspend fun getTripLegs(tripId: Int): List<SharedTripLeg> {
         return withContext(Dispatchers.IO) {
@@ -480,7 +503,8 @@ class DriverRepository(val apiService: ApiService) {
                         arrival_time = rawLeg.arrival_time,
                         departure_location = rawLeg.departure_location,
                         arrival_location = rawLeg.arrival_location,
-                        status = rawLeg.status
+                        status = rawLeg.status,
+                        return_to_base = rawLeg.return_to_base
                     )
                 }
             } catch (e: Exception) {
@@ -581,6 +605,67 @@ class DriverRepository(val apiService: ApiService) {
                 }
             } catch (e: Exception) {
                 android.util.Log.e("DriverRepository", "Submit shared trip exception: ${e.message}")
+                Result.failure(e)
+            }
+        }
+    }
+
+    // New methods for return flow
+    suspend fun startReturn(tripId: Int, legId: Int, request: com.example.drivebroom.network.ReturnStartRequest): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "=== STARTING RETURN TO BASE ===")
+                Log.d("DriverRepository", "Trip ID: $tripId, Leg ID: $legId")
+                Log.d("DriverRepository", "Request data:")
+                Log.d("DriverRepository", "  - odometer_start: ${request.odometer_start}")
+                Log.d("DriverRepository", "  - fuel_start: ${request.fuel_start}")
+                Log.d("DriverRepository", "  - return_start_time: '${request.return_start_time}'")
+                Log.d("DriverRepository", "  - return_start_location: '${request.return_start_location}'")
+                
+                val response = apiService.startReturn(tripId, legId, request)
+                Log.d("DriverRepository", "Backend response code: ${response.code()}")
+                
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "✅ Return start successful - backend accepted the data")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "❌ Return start failed: ${response.code()}")
+                    Log.e("DriverRepository", "Error body: $errorBody")
+                    Result.failure(Exception("Return start failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Return start exception", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun arriveAtBase(tripId: Int, legId: Int, request: com.example.drivebroom.network.ReturnArrivalRequest): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "=== ARRIVING AT BASE ===")
+                Log.d("DriverRepository", "Trip ID: $tripId, Leg ID: $legId")
+                Log.d("DriverRepository", "Request data:")
+                Log.d("DriverRepository", "  - odometer_end: ${request.odometer_end}")
+                Log.d("DriverRepository", "  - fuel_end: ${request.fuel_end}")
+                Log.d("DriverRepository", "  - return_arrival_time: '${request.return_arrival_time}'")
+                Log.d("DriverRepository", "  - return_arrival_location: '${request.return_arrival_location}'")
+                
+                val response = apiService.arriveAtBase(tripId, legId, request)
+                Log.d("DriverRepository", "Backend response code: ${response.code()}")
+                
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "✅ Return arrival successful - backend accepted the data")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "❌ Return arrival failed: ${response.code()}")
+                    Log.e("DriverRepository", "Error body: $errorBody")
+                    Result.failure(Exception("Return arrival failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Return arrival exception", e)
                 Result.failure(e)
             }
         }

@@ -19,9 +19,14 @@ class LoginViewModel(
     val loginState: StateFlow<LoginState> = _loginState
 
     init {
-        // Check if user is already logged in
-        tokenManager.getToken()?.let {
-            _loginState.value = LoginState.Success(it)
+        // Check if user is already logged in with valid token
+        val token = tokenManager.getToken()
+        if (!token.isNullOrBlank() && tokenManager.isTokenValid()) {
+            Log.d("LoginViewModel", "Valid token found, user is logged in")
+            _loginState.value = LoginState.Success(token)
+        } else {
+            Log.d("LoginViewModel", "No valid token found, user needs to login")
+            _loginState.value = LoginState.Initial
         }
     }
 
@@ -98,6 +103,13 @@ class LoginViewModel(
     }
 
     fun logout() {
+        Log.d("LoginViewModel", "Logging out user")
+        tokenManager.clearToken()
+        _loginState.value = LoginState.Initial
+    }
+    
+    fun handleAuthFailure() {
+        Log.d("LoginViewModel", "Handling authentication failure - forcing logout")
         tokenManager.clearToken()
         _loginState.value = LoginState.Initial
     }

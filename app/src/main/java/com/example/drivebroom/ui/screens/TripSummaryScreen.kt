@@ -279,6 +279,28 @@ private fun CompletedLegCard(leg: SharedTripLeg) {
                 style = MaterialTheme.typography.bodyMedium
             )
             
+            // Return to base indicator
+            if (leg.return_to_base == true) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Return to Base",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Return to Base Required",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            
             Text(
                 text = "Passengers: ${leg.passengers?.size ?: 0}",
                 style = MaterialTheme.typography.bodyMedium

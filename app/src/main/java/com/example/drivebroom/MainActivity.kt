@@ -58,7 +58,11 @@ class MainActivity : ComponentActivity() {
         // Set up authentication failure callback
         tokenManager.setOnAuthFailureCallback {
             Log.d("MainActivity", "Authentication failed - redirecting to login")
-            // The UI will automatically handle this through the login state
+            // Force logout to redirect to login screen
+            runOnUiThread {
+                // This will trigger the UI to show login screen
+                Log.d("MainActivity", "Token cleared, UI should redirect to login")
+            }
         }
         
         val tripIdFromIntent = intent.getStringExtra("trip_id")?.toIntOrNull()
@@ -90,6 +94,16 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
         factory = LoginViewModelFactory(DriverRepository(NetworkClient(tokenManager).apiService), tokenManager)
     )
     val loginState by loginViewModel.loginState.collectAsState()
+    
+    // Handle authentication failures by connecting to TokenManager callback
+    LaunchedEffect(tokenManager) {
+        Log.d("MainScreen", "Setting up auth failure callback")
+        tokenManager.setOnAuthFailureCallback {
+            Log.d("MainScreen", "Authentication failure detected - forcing logout")
+            loginViewModel.handleAuthFailure()
+        }
+        Log.d("MainScreen", "Auth failure callback set up complete")
+    }
 
     // Use a unique ViewModelStore for each login session
     val sessionStore = remember(loginState) { ViewModelStore() }

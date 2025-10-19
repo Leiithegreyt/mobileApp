@@ -85,7 +85,7 @@ fun SharedTripFlowScreen(
                    
                    // Also update the currentLegIndex to match the selected leg
                    val newIndex = sharedTripLegs.indexOfFirst { it.leg_id == matchingLeg.leg_id }
-                   if (newIndex >= 0 && newIndex != currentLegIndex) {
+                   if (newIndex >= 0) {
                        android.util.Log.d("SharedTripFlowScreen", "Updating currentLegIndex from $currentLegIndex to $newIndex to match selected leg")
                        viewModel.setCurrentLegIndex(newIndex)
                    }
@@ -171,8 +171,17 @@ fun SharedTripFlowScreen(
                     onBack = onBack, // Use the original onBack to go back to trip list
                     onStartTrip = {
                         if (sharedTripLegs.isNotEmpty()) {
-                            viewModel.setCurrentLegIndex(0)
-                            selectedLeg = sharedTripLegs[0]
+                            // Find the first incomplete leg (pending or approved)
+                            val firstIncompleteIndex = sharedTripLegs.indexOfFirst { it.status in listOf("pending", "approved") }
+                            if (firstIncompleteIndex >= 0) {
+                                android.util.Log.d("SharedTripFlowScreen", "Starting trip with first incomplete leg: index=$firstIncompleteIndex, ID=${sharedTripLegs[firstIncompleteIndex].leg_id}")
+                                viewModel.setCurrentLegIndex(firstIncompleteIndex)
+                                selectedLeg = sharedTripLegs[firstIncompleteIndex]
+                            } else {
+                                android.util.Log.d("SharedTripFlowScreen", "No incomplete legs found - starting with first leg")
+                                viewModel.setCurrentLegIndex(0)
+                                selectedLeg = sharedTripLegs[0]
+                            }
                         }
                     },
                     onLegClick = onLegClick
@@ -236,23 +245,56 @@ fun SharedTripFlowScreen(
                         onLegComplete = { legId, odometerEnd, fuelEnd, fuelPurchased, notes ->
                             viewModel.completeLeg(tripDetails.id, legId, odometerEnd, fuelEnd, fuelPurchased, notes)
                         },
+                        onReturnStart = { legId, odometerStart, fuelStart, returnTime, returnLocation ->
+                            viewModel.startReturn(tripDetails.id, legId, odometerStart, fuelStart, returnTime, returnLocation)
+                        },
+                        onReturnArrival = { legId, odometerEnd, fuelEnd, arrivalTime, arrivalLocation, fuelUsed, notes ->
+                            viewModel.arriveAtBase(tripDetails.id, legId, odometerEnd, fuelEnd, arrivalTime, arrivalLocation, fuelUsed, notes)
+                        },
+                        onContinueToNext = { legId, odometerEnd, fuelEnd, fuelPurchased, notes ->
+                            viewModel.continueToNextLeg(tripDetails.id, legId, odometerEnd, fuelEnd, fuelPurchased, notes)
+                        },
                         onNextLeg = {
                             android.util.Log.d("SharedTripFlowScreen", "=== NEXT LEG CALLBACK ===")
                             android.util.Log.d("SharedTripFlowScreen", "Current leg index: $currentLegIndex")
                             android.util.Log.d("SharedTripFlowScreen", "Total legs: ${sharedTripLegs.size}")
+                            android.util.Log.d("SharedTripFlowScreen", "All legs: ${sharedTripLegs.map { "ID=${it.leg_id}, status=${it.status}" }}")
                             
-                            if (currentLegIndex < sharedTripLegs.size - 1) {
-                                val nextIndex = currentLegIndex + 1
-                                android.util.Log.d("SharedTripFlowScreen", "Moving to next leg index: $nextIndex")
-                                viewModel.setCurrentLegIndex(nextIndex)
+                            // Find the next incomplete leg (not just next index)
+                            val incompleteLegs = sharedTripLegs.filter { it.status != "completed" }
+                            val currentLegId = selectedLeg?.leg_id
+                            
+                            android.util.Log.d("SharedTripFlowScreen", "Incomplete legs: ${incompleteLegs.map { "ID=${it.leg_id}, status=${it.status}" }}")
+                            android.util.Log.d("SharedTripFlowScreen", "Current leg ID: $currentLegId")
+                            
+                            if (incompleteLegs.isNotEmpty()) {
+                                // If current leg is completed, go to the first incomplete leg
+                                // If current leg is incomplete, go to the next incomplete leg
+                                val currentIncompleteIndex = incompleteLegs.indexOfFirst { it.leg_id == currentLegId }
+                                val nextIncompleteIndex = if (currentIncompleteIndex >= 0) {
+                                    // Current leg is incomplete, go to next
+                                    currentIncompleteIndex + 1
+                                } else {
+                                    // Current leg is completed, go to first incomplete
+                                    0
+                                }
                                 
-                                // Update selected leg to the next one
-                                if (nextIndex < sharedTripLegs.size) {
-                                    selectedLeg = sharedTripLegs[nextIndex]
+                                android.util.Log.d("SharedTripFlowScreen", "Current incomplete index: $currentIncompleteIndex")
+                                android.util.Log.d("SharedTripFlowScreen", "Next incomplete index: $nextIncompleteIndex")
+                                
+                                if (nextIncompleteIndex < incompleteLegs.size) {
+                                    val nextIncompleteLeg = incompleteLegs[nextIncompleteIndex]
+                                    val nextIndex = sharedTripLegs.indexOfFirst { it.leg_id == nextIncompleteLeg.leg_id }
+                                    
+                                    android.util.Log.d("SharedTripFlowScreen", "Moving to next incomplete leg: ID=${nextIncompleteLeg.leg_id}, index=$nextIndex")
+                                    viewModel.setCurrentLegIndex(nextIndex)
+                                    selectedLeg = nextIncompleteLeg
                                     android.util.Log.d("SharedTripFlowScreen", "Updated selectedLeg to: ${selectedLeg?.leg_id}")
+                                } else {
+                                    android.util.Log.d("SharedTripFlowScreen", "⚠️ No more incomplete legs available")
                                 }
                             } else {
-                                android.util.Log.d("SharedTripFlowScreen", "⚠️ Already at last leg, cannot move to next")
+                                android.util.Log.d("SharedTripFlowScreen", "⚠️ No incomplete legs found")
                             }
                         },
                         onTripComplete = {
