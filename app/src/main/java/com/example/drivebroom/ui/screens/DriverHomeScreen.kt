@@ -253,8 +253,8 @@ fun DriverHomeScreen(
                 onBack = { showSharedTripDetails = null }
             )
         } else if (selectedCompletedTrip != null) {
-            // Completed Trip Details Screen
-            CompletedTripDetailsScreen(
+            // Completed Trip Details Screen with detailed legs
+            CompletedTripDetailsWithLegs(
                 trip = selectedCompletedTrip!!,
                 onBack = { selectedCompletedTrip = null },
                 onViewSharedTripDetails = { tripId ->
@@ -266,7 +266,8 @@ fun DriverHomeScreen(
                         showSharedTripDetails = sharedTrip
                         selectedCompletedTrip = null // Hide the completed trip details
                     }
-                }
+                },
+                viewModel = viewModel
             )
         } else if (showCompletedTrips) {
             // Trip Log Screen

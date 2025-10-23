@@ -69,9 +69,19 @@ fun TripDetailsScreen(
             tripDetails = trip,
             sharedTripLegs = sharedTripLegs,
             onBack = onBack,
-            onStartTrip = { onSharedTripClick(trip) },
+            onStartTrip = {
+                // Set current leg to the first actionable leg before navigating
+                val defaultIndex = sharedTripLegs.indexOfFirst { it.status in listOf("pending", "approved", "in_progress") }
+                val targetIndex = if (defaultIndex >= 0) defaultIndex else 0
+                tripDetailsViewModel.setCurrentLegIndex(targetIndex)
+                onSharedTripClick(trip)
+            },
             onLegClick = { legId ->
-                // Navigate to leg execution screen
+                // Set the current leg index based on clicked leg, then navigate
+                val legIndex = sharedTripLegs.indexOfFirst { it.leg_id == legId }
+                if (legIndex >= 0) {
+                    tripDetailsViewModel.setCurrentLegIndex(legIndex)
+                }
                 onSharedTripClick(trip)
             }
         )
@@ -297,29 +307,6 @@ fun TripDetailsScreen(
                 
                 if (hasOperationalData) {
                     Text("Total Distance Travelled: ${String.format("%.2f", totalDistanceTravelled)} km", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                } else {
-                    // Show appropriate message for completed trips without operational data
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "⚠️ Trip Completed Without Execution",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "This trip was marked as completed but has no operational data (fuel readings, odometer readings, or return time).",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
                 }
                 
                 Divider(Modifier.padding(vertical = 12.dp))
@@ -423,7 +410,13 @@ fun TripDetailsScreen(
                         "pending", "approved" -> {
                             // Step 1: Depart
                             Button(
-                                onClick = { showDepartureDialog = true },
+                                onClick = { 
+                                    android.util.Log.d("TripDetailsScreen", "🚀 DEPARTURE BUTTON CLICKED!")
+                                    android.util.Log.d("TripDetailsScreen", "Trip ID: ${trip.id}")
+                                    android.util.Log.d("TripDetailsScreen", "Trip Status: ${trip.status}")
+                                    android.util.Log.d("TripDetailsScreen", "Action State: $actionState")
+                                    showDepartureDialog = true 
+                                },
                                 enabled = actionState !is TripActionState.Loading,
                                 modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
                             ) { 
@@ -433,7 +426,13 @@ fun TripDetailsScreen(
                         "on_route", "in_progress" -> {
                             // Step 2: Arrive
                             OutlinedButton(
-                                onClick = { showArrivalDialog = true },
+                                onClick = { 
+                                    android.util.Log.d("TripDetailsScreen", "🚀 ARRIVAL BUTTON CLICKED!")
+                                    android.util.Log.d("TripDetailsScreen", "Trip ID: ${trip.id}")
+                                    android.util.Log.d("TripDetailsScreen", "Trip Status: ${trip.status}")
+                                    android.util.Log.d("TripDetailsScreen", "Departure Posted: $departurePosted")
+                                    showArrivalDialog = true 
+                                },
                                 enabled = actionState !is TripActionState.Loading && departurePosted,
                                 modifier = Modifier.weight(1f).defaultMinSize(minWidth = 110.dp)
                             ) { 
@@ -711,6 +710,24 @@ fun TripDetailsScreen(
                     }
                     
                     OutlinedTextField(
+                        value = fuelBalanceEndInput,
+                        onValueChange = { 
+                            fuelBalanceEndInput = it
+                            android.util.Log.d("TripDetailsScreen", "=== FUEL INPUT CHANGED ===")
+                            android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput: '$fuelBalanceEndInput'")
+                        },
+                        label = { Text("Fuel Balance End (L)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = fuelPurchasedInput,
+                        onValueChange = { fuelPurchasedInput = it },
+                        label = { Text("Fuel Purchased (L)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
                         value = fuelUsed,
                         onValueChange = { },
                         label = { Text("Fuel Used (L) - Auto-calculated") },
@@ -737,20 +754,6 @@ fun TripDetailsScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = fuelBalanceEndInput,
-                        onValueChange = { fuelBalanceEndInput = it },
-                        label = { Text("Fuel Balance End (L)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = fuelPurchasedInput,
-                        onValueChange = { fuelPurchasedInput = it },
-                        label = { Text("Fuel Purchased (L)") },
-                        placeholder = { Text("Enter 0 or leave empty if no fuel purchased") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = notes,
@@ -805,12 +808,32 @@ fun TripDetailsScreen(
                         
                         val timeForBackend = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
                         val timeForDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
-                        tripDetailsViewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
-                        // Use regular arrival for single trips (not leg arrival)
-                        val fuelEndForNow = fuelBalanceEndInput.toDoubleOrNull() ?: (lastFuelBalanceStart ?: 0.0)
+                        
+                        // Calculate fuel used
+                        val fuelEndForNow = fuelBalanceEndInput.toDoubleOrNull() ?: 0.0
                         val fuelPurchasedValue = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
-                        storedFuelPurchased = fuelPurchasedValue // Store for trip completion
-                        storedFuelBalanceEnd = fuelEndForNow // Store fuel balance end for trip completion
+                        val fuelUsed = (lastFuelBalanceStart ?: 0.0) + fuelPurchasedValue - fuelEndForNow
+                        
+                        // Call the arrival API for single trips
+                        tripDetailsViewModel.logArrival(
+                            tripId = trip.id,
+                            odometerEnd = odometerEnd,
+                            fuelEnd = fuelEndForNow,
+                            arrivalLocation = arrivalLocation,
+                            fuelUsed = maxOf(0.0, fuelUsed),
+                            notes = "Arrived at destination"
+                        )
+                        
+                        // Also update local itinerary for display
+                        tripDetailsViewModel.addArrivalToLastLeg(odometerEnd, timeForBackend, arrivalLocation, timeForDisplay)
+                        
+                        // Store values for trip completion
+                        storedFuelPurchased = fuelPurchasedValue
+                        storedFuelBalanceEnd = fuelEndForNow
+                        
+                        android.util.Log.d("TripDetailsScreen", "=== STORING FUEL VALUES ===")
+                        android.util.Log.d("TripDetailsScreen", "fuelEndForNow: $fuelEndForNow")
+                        android.util.Log.d("TripDetailsScreen", "storedFuelBalanceEnd set to: $storedFuelBalanceEnd")
                         
                         // Debug logging
                         android.util.Log.d("TripDetailsScreen", "=== ARRIVAL CONFIRMATION DEBUG ===")
@@ -823,30 +846,23 @@ fun TripDetailsScreen(
                         android.util.Log.d("TripDetailsScreen", "storedFuelBalanceEnd: $storedFuelBalanceEnd")
                         android.util.Log.d("TripDetailsScreen", "odometerEnd: $odometerEnd")
                         android.util.Log.d("TripDetailsScreen", "arrivalLocation: '$arrivalLocation'")
-                        // Calculate fuel used for arrival
-                        val fuelUsed = (lastFuelBalanceStart ?: 0.0) + fuelPurchasedValue - fuelEndForNow
-                        
-                        android.util.Log.d("TripDetailsScreen", "=== CALLING LOG ARRIVAL ===")
-                        android.util.Log.d("TripDetailsScreen", "Status before arrival: '$singleTripStatus'")
-                        
-                        tripDetailsViewModel.logArrival(
-                            tripId = trip.id,
-                            odometerEnd = odometerEnd,
-                            fuelEnd = fuelEndForNow,
-                            arrivalLocation = "Destination", // You can make this dynamic based on trip data
-                            fuelUsed = fuelUsed,
-                            notes = null, // Optional notes
-                            passengersDropped = passengersList
-                        )
-                        
-                        android.util.Log.d("TripDetailsScreen", "=== AFTER LOG ARRIVAL CALL ===")
-                        android.util.Log.d("TripDetailsScreen", "Status after arrival call: '$singleTripStatus'")
+                        android.util.Log.d("TripDetailsScreen", "=== ARRIVAL CONFIRMATION DEBUG ===")
+                        android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput: '$fuelBalanceEndInput'")
+                        android.util.Log.d("TripDetailsScreen", "fuelPurchasedInput: '$fuelPurchasedInput'")
+                        android.util.Log.d("TripDetailsScreen", "fuelEndForNow: $fuelEndForNow")
+                        android.util.Log.d("TripDetailsScreen", "fuelPurchasedValue: $fuelPurchasedValue")
+                        android.util.Log.d("TripDetailsScreen", "lastFuelBalanceStart: $lastFuelBalanceStart")
                         
                         showArrivalDialog = false
                         canArrive = false
                         canReturn = true // Enable the Complete Trip button
                         currentArrivalOdometer = "" // Clear the input
+                        
+                        android.util.Log.d("TripDetailsScreen", "=== CLEARING INPUTS AFTER ARRIVAL ===")
+                        android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput before clear: '$fuelBalanceEndInput'")
                         fuelBalanceEndInput = "" // Clear the fuel balance end input
+                        android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput after clear: '$fuelBalanceEndInput'")
+                        
                         fuelPurchasedInput = "" // Clear the fuel purchased input
                         notes = "" // Clear the notes field
                         droppedPassengerSet = emptySet()
@@ -906,6 +922,7 @@ fun TripDetailsScreen(
                     android.util.Log.d("TripDetailsScreen", "fuelBalanceStart: $fuelBalanceStart")
                     android.util.Log.d("TripDetailsScreen", "fuelPurchased: $fuelPurchased")
                     android.util.Log.d("TripDetailsScreen", "fuelBalanceEnd: $fuelBalanceEnd")
+                    android.util.Log.d("TripDetailsScreen", "storedFuelBalanceEnd: $storedFuelBalanceEnd")
                     android.util.Log.d("TripDetailsScreen", "calculated fuelUsed: ${fuelBalanceStart + fuelPurchased - fuelBalanceEnd}")
                     
                         val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
@@ -944,19 +961,21 @@ fun TripDetailsScreen(
                             emptyList()
                         }
                     
-                    // Send completion data to backend
-                        tripDetailsViewModel.logReturn(
-                            trip.id,
+                    // Send completion data to backend using the new unified return journey flow
+                    // This will properly store return journey data as TripLeg records with return_to_base = true
+                    tripDetailsViewModel.logReturnWithUnifiedFlow(
+                        trip.id,
                         fuelBalanceStart,
-                            fuelPurchased,
-                            fuelBalanceEnd,
-                            passengerDetailsToSend,
-                            finalItinerary
-                        )
-                    
-                    // Close dialog and navigate to trip logs
-                        showReturnDialog = false
-                    onNavigateToTripLogs() // Navigate to trip logs
+                        fuelPurchased,
+                        fuelBalanceEnd,
+                        passengerDetailsToSend,
+                        finalItinerary,
+                        onComplete = {
+                            // Close dialog and navigate to trip logs after successful completion
+                            showReturnDialog = false
+                            onNavigateToTripLogs()
+                        }
+                    )
                 }) { Text("OK") }
             },
             dismissButton = {
@@ -1152,17 +1171,19 @@ fun TripDetailsScreen(
                             emptyList()
                         }
 
-                        tripDetailsViewModel.logReturn(
+                        tripDetailsViewModel.logReturnWithUnifiedFlow(
                             tripId = trip.id,
                             fuelBalanceStart = lastFuelBalanceStart ?: 0.0,
                             fuelPurchased = fuelPurchased,
                             fuelBalanceEnd = fuel,
                             passengerDetails = passengerDetailsToSend,
-                            itinerary = finalItinerary
+                            itinerary = finalItinerary,
+                            onComplete = {
+                                // Navigate to trip logs after successful completion
+                                showReturnArrivalDialog = false
+                                onNavigateToTripLogs()
+                            }
                         )
-                        
-                        showReturnArrivalDialog = false
-                        onNavigateToTripLogs()
                     } else {
                         android.widget.Toast.makeText(context, "Enter valid odometer and fuel.", android.widget.Toast.LENGTH_SHORT).show()
                     }

@@ -26,18 +26,38 @@ interface ApiService {
     @POST("driver/fcm-token")
     suspend fun updateFcmToken(@Body request: FcmTokenRequest): retrofit2.Response<Unit>
 
-    @POST("trips/{tripId}/depart")
+    // Single Trip API Endpoints
+    @POST("single-trips/{tripId}/depart")
     suspend fun logDeparture(
         @Path("tripId") tripId: Int,
         @Body body: DepartureBody
     ): retrofit2.Response<Unit>
 
-    @POST("trips/{tripId}/arrive")
+    @POST("single-trips/{tripId}/arrive")
     suspend fun logArrival(
         @Path("tripId") tripId: Int,
         @Body body: ArrivalBody
     ): retrofit2.Response<Unit>
 
+    @POST("single-trips/{tripId}/return-start")
+    suspend fun startSingleTripReturn(
+        @Path("tripId") tripId: Int,
+        @Body body: SingleTripReturnStartRequest
+    ): retrofit2.Response<Unit>
+
+    @POST("single-trips/{tripId}/return-arrive")
+    suspend fun logReturnArrival(
+        @Path("tripId") tripId: Int,
+        @Body body: ReturnArrivalBody
+    ): retrofit2.Response<Unit>
+
+    @POST("single-trips/{tripId}/complete")
+    suspend fun logComplete(
+        @Path("tripId") tripId: Int,
+        @Body body: CompleteBody
+    ): retrofit2.Response<Unit>
+
+    // Legacy endpoints for backward compatibility
     @POST("trips/{tripId}/return")
     suspend fun logReturn(
         @Path("tripId") tripId: Int,
@@ -45,27 +65,9 @@ interface ApiService {
     ): retrofit2.Response<Unit>
 
     @POST("trips/{tripId}/return-start")
-    suspend fun startSingleTripReturn(
-        @Path("tripId") tripId: Int,
-        @Body body: SingleTripReturnStartRequest
-    ): retrofit2.Response<Unit>
-
-    @POST("trips/{tripId}/return-start")
     suspend fun logReturnStart(
         @Path("tripId") tripId: Int,
         @Body body: ReturnStartBody
-    ): retrofit2.Response<Unit>
-
-    @POST("trips/{tripId}/return-arrive")
-    suspend fun logReturnArrival(
-        @Path("tripId") tripId: Int,
-        @Body body: ReturnArrivalBody
-    ): retrofit2.Response<Unit>
-
-    @POST("trips/{tripId}/complete")
-    suspend fun logComplete(
-        @Path("tripId") tripId: Int,
-        @Body body: CompleteBody
     ): retrofit2.Response<Unit>
 
     // Unified API endpoints for leg execution (single + shared)
@@ -226,7 +228,7 @@ data class DepartureBody(
     @SerializedName("passengers_confirmed") val passengersConfirmed: List<String>? = null
 )
 data class ArrivalBody(
-    @SerializedName("odometer_end") val odometerEnd: Double,
+    @SerializedName("odometer_arrival") val odometerEnd: Double,
     @SerializedName("fuel_end") val fuelEnd: Double,
     @SerializedName("arrival_location") val arrivalLocation: String,
     @SerializedName("fuel_used") val fuelUsed: Double? = null,
@@ -328,7 +330,18 @@ data class SharedTripLeg(
     val departure_location: String? = null,
     val arrival_location: String? = null,
     val status: String, // "pending", "approved", "on_route", "arrived", "returning", "completed"
-    val return_to_base: Boolean = false // NEW: Indicates if driver must return to base after this leg
+    val return_to_base: Boolean = false, // NEW: Indicates if driver must return to base after this leg
+    val return_journey: ReturnJourney? = null // NEW: Return journey data if available
+)
+
+data class ReturnJourney(
+    val return_start_time: String?,
+    val return_start_location: String?,
+    val return_odometer_end: String?,
+    val return_fuel_end: String?,
+    val return_arrival_time: String?,
+    val return_arrival_location: String?,
+    val return_fuel_used: String?
 )
 
 // Raw DTO to handle backend returning passengers as objects
@@ -351,7 +364,8 @@ data class RawSharedTripLeg(
     val departure_location: String? = null,
     val arrival_location: String? = null,
     val status: String, // "pending", "approved", "on_route", "arrived", "returning", "completed"
-    val return_to_base: Boolean = false // NEW: Indicates if driver must return to base after this leg
+    val return_to_base: Boolean = false, // NEW: Indicates if driver must return to base after this leg
+    val return_journey: ReturnJourney? = null // NEW: Return journey data if available
 )
 
 // API endpoints for shared trip leg execution

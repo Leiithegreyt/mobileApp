@@ -71,19 +71,31 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun logDeparture(tripId: Int, body: DepartureBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d("DriverRepository", "Logging departure for trip $tripId with body: $body")
+                Log.d("DriverRepository", "=== SINGLE TRIP DEPARTURE DEBUG ===")
+                Log.d("DriverRepository", "Trip ID: $tripId")
+                Log.d("DriverRepository", "API Endpoint: POST /single-trips/$tripId/depart")
+                Log.d("DriverRepository", "Request Body:")
+                Log.d("DriverRepository", "  - odometer_start: ${body.odometerStart}")
+                Log.d("DriverRepository", "  - fuel_start: ${body.fuelStart}")
+                Log.d("DriverRepository", "  - departure_location: '${body.departureLocation}'")
+                Log.d("DriverRepository", "  - departure_time: '${body.departureTime}'")
+                Log.d("DriverRepository", "  - passengers_confirmed: ${body.passengersConfirmed}")
+                
                 val response = apiService.logDeparture(tripId, body)
-                Log.d("DriverRepository", "Departure response code: ${response.code()}")
+                Log.d("DriverRepository", "Backend response code: ${response.code()}")
+                Log.d("DriverRepository", "Backend response headers: ${response.headers()}")
+                
                 if (response.isSuccessful) {
-                    Log.d("DriverRepository", "Departure successful")
+                    Log.d("DriverRepository", "✅ Single trip departure successful - data should be stored in backend")
                     Result.success(Unit)
                 } else {
                     val errorBody = response.errorBody()?.string()
-                    Log.e("DriverRepository", "Departure failed with code ${response.code()}: $errorBody")
+                    Log.e("DriverRepository", "❌ Single trip departure failed: ${response.code()}")
+                    Log.e("DriverRepository", "Error body: $errorBody")
                     Result.failure(Exception("Departure failed: ${response.code()} - $errorBody"))
                 }
             } catch (e: Exception) {
-                Log.e("DriverRepository", "Departure exception", e)
+                Log.e("DriverRepository", "Single trip departure exception", e)
                 Result.failure(e)
             }
         }
@@ -587,7 +599,8 @@ class DriverRepository(val apiService: ApiService) {
                         departure_location = rawLeg.departure_location,
                         arrival_location = rawLeg.arrival_location,
                         status = rawLeg.status,
-                        return_to_base = rawLeg.return_to_base
+                        return_to_base = rawLeg.return_to_base,
+                        return_journey = rawLeg.return_journey
                     )
                 }
             } catch (e: Exception) {
@@ -753,4 +766,5 @@ class DriverRepository(val apiService: ApiService) {
             }
         }
     }
+
 } 

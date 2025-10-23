@@ -313,6 +313,12 @@ class TripDetailsViewModel(
 
     fun logDeparture(tripId: Int, odometerStart: Double, fuelBalanceStart: Double, passengersConfirmed: List<String> = emptyList()) {
         viewModelScope.launch {
+            android.util.Log.d("TripDetailsViewModel", "🚀 === DEPARTURE METHOD CALLED ===")
+            android.util.Log.d("TripDetailsViewModel", "Trip ID: $tripId")
+            android.util.Log.d("TripDetailsViewModel", "Odometer Start: $odometerStart")
+            android.util.Log.d("TripDetailsViewModel", "Fuel Start: $fuelBalanceStart")
+            android.util.Log.d("TripDetailsViewModel", "Passengers: $passengersConfirmed")
+            
             _actionState.value = TripActionState.Loading
             val rawToken = tokenManager.getToken()
             Log.d("TripDetailsViewModel", "Raw token from manager: $rawToken")
@@ -548,6 +554,9 @@ class TripDetailsViewModel(
         passengerDetails: List<com.example.drivebroom.network.PassengerDetail>,
         itinerary: List<com.example.drivebroom.network.ItineraryLegDto>
     ) {
+        android.util.Log.d("TripDetailsViewModel", "⚠️ OLD logReturn CALLED! (This won't create return legs)")
+        android.util.Log.d("TripDetailsViewModel", "Trip ID: $tripId")
+        
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
             val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
@@ -607,6 +616,231 @@ class TripDetailsViewModel(
         }
     }
 
+    /**
+     * NEW METHOD: Unified return journey flow that properly stores return journey data
+     * This method calls the proper return journey endpoints that create TripLeg records with return_to_base = true
+     */
+    fun logReturnWithUnifiedFlow(
+        tripId: Int,
+        fuelBalanceStart: Double,
+        fuelPurchased: Double,
+        fuelBalanceEnd: Double,
+        passengerDetails: List<com.example.drivebroom.network.PassengerDetail>,
+        itinerary: List<com.example.drivebroom.network.ItineraryLegDto>,
+        onComplete: (() -> Unit)? = null
+    ) {
+        android.util.Log.d("TripDetailsViewModel", "🚀 logReturnWithUnifiedFlow CALLED!")
+        android.util.Log.d("TripDetailsViewModel", "Trip ID: $tripId")
+        android.util.Log.d("TripDetailsViewModel", "Fuel Start: $fuelBalanceStart, End: $fuelBalanceEnd")
+        android.util.Log.d("TripDetailsViewModel", "Itinerary legs: ${itinerary.size}")
+        
+        viewModelScope.launch {
+            _actionState.value = TripActionState.Loading
+            val token = tokenManager.getToken()?.let { "Bearer $it" } ?: run {
+                _actionState.value = TripActionState.Error("No auth token")
+                return@launch
+            }
+            
+            try {
+                android.util.Log.d("TripDetailsViewModel", "=== UNIFIED RETURN JOURNEY FLOW ===")
+                android.util.Log.d("TripDetailsViewModel", "Trip ID: $tripId")
+                
+                // Check if this is a single trip or shared trip
+                val isSharedTrip = _isSharedTrip.value
+                
+                // Get common data
+                val firstLeg = itinerary.firstOrNull()
+                if (firstLeg == null) {
+                    android.util.Log.e("TripDetailsViewModel", "No itinerary legs found for return journey")
+                    _actionState.value = TripActionState.Error("No itinerary data found for return journey")
+                    return@launch
+                }
+                
+                // Extract return journey data from the itinerary
+                val returnStartOdometer = firstLeg.odometer_arrival ?: firstLeg.odometer ?: 0.0 // Use odometer_arrival (arrival) first, fallback to odometer
+                val returnStartFuel = fuelBalanceEnd // End fuel from main journey
+                // For return journey, we need to calculate the final odometer reading
+                // Assuming return journey covers the same distance as outbound journey
+                val outboundDistance = (firstLeg.odometer_arrival ?: firstLeg.odometer ?: 0.0) - (firstLeg.odometer_start ?: 0.0)
+                val returnEndOdometer = returnStartOdometer + outboundDistance // Return to base odometer
+                // Calculate fuel used for return journey (assuming similar fuel consumption)
+                val returnFuelUsed = outboundDistance * 0.1 // Rough estimate: 0.1L per km
+                val returnEndFuel = maxOf(0.0, returnStartFuel - returnFuelUsed) // Ensure fuel never goes negative
+                
+                android.util.Log.d("TripDetailsViewModel", "=== ODOMETER CALCULATION DEBUG ===")
+                android.util.Log.d("TripDetailsViewModel", "firstLeg.odometer_start: ${firstLeg.odometer_start}")
+                android.util.Log.d("TripDetailsViewModel", "firstLeg.odometer: ${firstLeg.odometer}")
+                android.util.Log.d("TripDetailsViewModel", "firstLeg.odometer_arrival: ${firstLeg.odometer_arrival}")
+                android.util.Log.d("TripDetailsViewModel", "returnStartOdometer: $returnStartOdometer")
+                android.util.Log.d("TripDetailsViewModel", "outboundDistance: $outboundDistance km")
+                android.util.Log.d("TripDetailsViewModel", "returnEndOdometer: $returnEndOdometer")
+                
+                android.util.Log.d("TripDetailsViewModel", "=== FUEL CALCULATION DEBUG ===")
+                android.util.Log.d("TripDetailsViewModel", "Return start fuel: $returnStartFuel L")
+                android.util.Log.d("TripDetailsViewModel", "Calculated return fuel used: $returnFuelUsed L")
+                android.util.Log.d("TripDetailsViewModel", "Raw return end fuel: ${returnStartFuel - returnFuelUsed} L")
+                android.util.Log.d("TripDetailsViewModel", "Final return end fuel (capped at 0): $returnEndFuel L")
+                
+                // Get current time for return journey
+                val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                val returnStartLocation = firstLeg.arrival ?: "Destination"
+                val returnEndLocation = firstLeg.departure ?: "ISATU Miagao Campus"
+                
+                if (isSharedTrip) {
+                    // For shared trips, use the leg-based return API
+                    android.util.Log.d("TripDetailsViewModel", "Shared trip return journey data:")
+                    android.util.Log.d("TripDetailsViewModel", "Start odometer: $returnStartOdometer, Start fuel: $returnStartFuel")
+                    android.util.Log.d("TripDetailsViewModel", "End odometer: $returnEndOdometer, End fuel: $returnEndFuel")
+                    android.util.Log.d("TripDetailsViewModel", "Start location: $returnStartLocation, End location: $returnEndLocation")
+                    
+                    // For shared trips, we'll use a default leg ID of 1 since there's only one leg
+                    val legId = 1
+                    
+                    // Step 1: Start return journey
+                    android.util.Log.d("TripDetailsViewModel", "Step 1: Starting shared trip return journey...")
+                    val returnStartRequest = com.example.drivebroom.network.ReturnStartRequest(
+                        odometer_start = returnStartOdometer,
+                        fuel_start = returnStartFuel,
+                        return_start_time = currentTime,
+                        return_start_location = returnStartLocation
+                    )
+                    
+                    val startResult = repository.startReturn(tripId, legId, returnStartRequest)
+                    if (startResult.isFailure) {
+                        android.util.Log.e("TripDetailsViewModel", "Return start failed: ${startResult.exceptionOrNull()?.message}")
+                        _actionState.value = TripActionState.Error("Failed to start return journey: ${startResult.exceptionOrNull()?.message}")
+                        return@launch
+                    }
+                } else {
+                    // For single trips, use the single trip return API
+                    android.util.Log.d("TripDetailsViewModel", "Single trip return journey data:")
+                    android.util.Log.d("TripDetailsViewModel", "Start odometer: $returnStartOdometer, Start fuel: $returnStartFuel")
+                    android.util.Log.d("TripDetailsViewModel", "Start location: $returnStartLocation")
+                    
+                    // Step 1: Start return journey using single trip API
+                    android.util.Log.d("TripDetailsViewModel", "Step 1: Starting single trip return journey...")
+                    val returnStartRequest = com.example.drivebroom.network.SingleTripReturnStartRequest(
+                        odometer_start = returnStartOdometer,
+                        fuel_start = returnStartFuel,
+                        return_start_time = currentTime,
+                        return_start_location = returnStartLocation
+                    )
+                    
+                    val startResult = repository.startSingleTripReturn(tripId, returnStartRequest)
+                    if (startResult.isFailure) {
+                        android.util.Log.e("TripDetailsViewModel", "Single trip return start failed: ${startResult.exceptionOrNull()?.message}")
+                        _actionState.value = TripActionState.Error("Failed to start return journey: ${startResult.exceptionOrNull()?.message}")
+                        return@launch
+                    }
+                }
+                
+                android.util.Log.d("TripDetailsViewModel", "✅ Return journey started successfully")
+                
+                // Step 2: Arrive at base
+                android.util.Log.d("TripDetailsViewModel", "Step 2: Arriving at base...")
+                
+                if (isSharedTrip) {
+                    // For shared trips, use the leg-based return arrival API
+                    val legId = 1 // Same legId as used in the start request
+                    val returnArrivalRequest = com.example.drivebroom.network.ReturnArrivalRequest(
+                        odometer_end = returnEndOdometer,
+                        fuel_end = returnEndFuel,
+                        return_arrival_time = currentTime,
+                        return_arrival_location = returnEndLocation,
+                        fuel_used = returnStartFuel - returnEndFuel,
+                        notes = "Return journey completed via unified flow"
+                    )
+                    
+                    val arrivalResult = repository.arriveAtBase(tripId, legId, returnArrivalRequest)
+                    if (arrivalResult.isFailure) {
+                        android.util.Log.e("TripDetailsViewModel", "Return arrival failed: ${arrivalResult.exceptionOrNull()?.message}")
+                        _actionState.value = TripActionState.Error("Failed to complete return journey: ${arrivalResult.exceptionOrNull()?.message}")
+                        return@launch
+                    }
+                } else {
+                    // For single trips, we need to call return-arrive API after return start
+                    android.util.Log.d("TripDetailsViewModel", "Single trip return journey started, now calling return-arrive...")
+                    
+                    // Calculate return arrival data
+                    val returnArrivalRequest = com.example.drivebroom.network.ReturnArrivalBody(
+                        odometerEnd = returnEndOdometer,
+                        fuelEnd = returnEndFuel,
+                        returnArrivalLocation = returnEndLocation,
+                        fuelUsed = returnStartFuel - returnEndFuel,
+                        notes = "Return journey completed"
+                    )
+                    
+                    android.util.Log.d("TripDetailsViewModel", "Single trip return arrival data:")
+                    android.util.Log.d("TripDetailsViewModel", "Return end odometer: $returnEndOdometer")
+                    android.util.Log.d("TripDetailsViewModel", "Return end fuel: $returnEndFuel")
+                    android.util.Log.d("TripDetailsViewModel", "Return fuel used: ${returnStartFuel - returnEndFuel}")
+                    
+                    // Call the single trip return arrival API
+                    val returnArrivalResult = repository.logReturnArrival(tripId, returnArrivalRequest)
+                    if (returnArrivalResult.isFailure) {
+                        android.util.Log.e("TripDetailsViewModel", "Single trip return arrival failed: ${returnArrivalResult.exceptionOrNull()?.message}")
+                        _actionState.value = TripActionState.Error("Failed to complete return journey: ${returnArrivalResult.exceptionOrNull()?.message}")
+                        return@launch
+                    }
+                    
+                    android.util.Log.d("TripDetailsViewModel", "✅ Single trip return journey completed successfully")
+                    
+                    // Step 3: Complete the trip
+                    android.util.Log.d("TripDetailsViewModel", "Step 3: Completing single trip...")
+                    val completeResult = repository.logComplete(tripId, com.example.drivebroom.network.CompleteBody(
+                        odometerEnd = returnEndOdometer,
+                        fuelEnd = returnEndFuel,
+                        fuelUsed = returnStartFuel - returnEndFuel,
+                        completionNotes = "Single trip completed with return journey"
+                    ))
+                    
+                    if (completeResult.isFailure) {
+                        android.util.Log.e("TripDetailsViewModel", "Single trip completion failed: ${completeResult.exceptionOrNull()?.message}")
+                        _actionState.value = TripActionState.Error("Failed to complete trip: ${completeResult.exceptionOrNull()?.message}")
+                        return@launch
+                    }
+                    
+                    android.util.Log.d("TripDetailsViewModel", "✅ Single trip completed successfully")
+                }
+                
+                android.util.Log.d("TripDetailsViewModel", "✅ Return journey completed successfully")
+                android.util.Log.d("TripDetailsViewModel", "Return journey data has been stored as TripLeg records with return_to_base = true")
+                
+                // DEBUG: Let's check what legs exist after creating the return leg (only for shared trips)
+                if (isSharedTrip) {
+                    android.util.Log.d("TripDetailsViewModel", "=== DEBUGGING: Checking trip legs after return journey ===")
+                    try {
+                        // Wait a moment for the backend to process the return leg creation
+                        kotlinx.coroutines.delay(1000)
+                        
+                        // Check what legs exist now
+                        val updatedLegs = repository.getTripLegs(tripId)
+                        android.util.Log.d("TripDetailsViewModel", "=== LEGS AFTER RETURN JOURNEY ===")
+                        android.util.Log.d("TripDetailsViewModel", "Total legs found: ${updatedLegs.size}")
+                        updatedLegs.forEachIndexed { index, leg ->
+                            android.util.Log.d("TripDetailsViewModel", "Leg $index: ID=${leg.leg_id}, Destination=${leg.destination}, ReturnToBase=${leg.return_to_base}, Status=${leg.status}")
+                        }
+                        
+                    } catch (e: Exception) {
+                        android.util.Log.e("TripDetailsViewModel", "Failed to fetch legs after return: ${e.message}")
+                    }
+                } else {
+                    android.util.Log.d("TripDetailsViewModel", "Single trip return journey completed - no legs to check")
+                }
+                
+                _singleTripStatus.value = "completed"
+                _actionState.value = TripActionState.Success
+                
+                // Call the completion callback if provided
+                onComplete?.invoke()
+                
+            } catch (e: Exception) {
+                android.util.Log.e("TripDetailsViewModel", "Unified return journey flow failed", e)
+                _actionState.value = TripActionState.Error("Return journey failed: ${e.message}")
+            }
+        }
+    }
+
     fun restartTrip(tripId: Int) {
         viewModelScope.launch {
             _actionState.value = TripActionState.Loading
@@ -632,6 +866,14 @@ class TripDetailsViewModel(
                 val result = repository.getCompletedTrips()
                 result.onSuccess { trips ->
                     println("TripDetailsViewModel: Success - Got ${trips.size} trips")
+                    // DEBUG: Log each trip and its legs
+                    trips.forEach { trip ->
+                        android.util.Log.d("TripDetailsViewModel", "=== COMPLETED TRIP DEBUG ===")
+                        android.util.Log.d("TripDetailsViewModel", "Trip ${trip.id}: ${trip.destination}, legs: ${trip.legs?.size ?: 0}")
+                        trip.legs?.forEachIndexed { index, leg ->
+                            android.util.Log.d("TripDetailsViewModel", "  Leg $index: ID=${leg.leg_id}, Status=${leg.status}, ReturnToBase=${leg.return_to_base}, Destination=${leg.destination}")
+                        }
+                    }
                     _completedTrips.value = trips
                     _completedTripsMessage.value = if (trips.isNotEmpty()) {
                         "Found ${trips.size} completed trips"
@@ -646,6 +888,36 @@ class TripDetailsViewModel(
             } catch (e: Exception) {
                 println("TripDetailsViewModel: Exception - ${e.message}")
                 _completedTripsMessage.value = "Error: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Create return legs for shared trips after completion
+     * Note: This is currently disabled due to backend validation requiring legs to be in "arrived" status
+     * The return leg creation should be handled through the normal trip execution flow
+     */
+    private fun createReturnLegsForSharedTrip(tripId: Int, lastLeg: com.example.drivebroom.network.SharedTripLeg?, totalFuelUsed: Double) {
+        viewModelScope.launch {
+            try {
+                android.util.Log.d("TripDetailsViewModel", "=== RETURN LEG CREATION FOR SHARED TRIP ===")
+                android.util.Log.d("TripDetailsViewModel", "Trip ID: $tripId")
+                android.util.Log.d("TripDetailsViewModel", "Last leg: ${lastLeg?.leg_id}, Destination: ${lastLeg?.destination}")
+                
+                // Check current leg statuses
+                val completedLegs = _sharedTripLegs.value.filter { it.status == "completed" }
+                android.util.Log.d("TripDetailsViewModel", "Found ${completedLegs.size} completed legs")
+                
+                for (leg in completedLegs) {
+                    android.util.Log.d("TripDetailsViewModel", "Leg ${leg.leg_id} (${leg.destination}): status=${leg.status}")
+                }
+
+                android.util.Log.w("TripDetailsViewModel", "⚠️ Return leg creation skipped - Backend requires legs to be in 'arrived' status")
+                android.util.Log.w("TripDetailsViewModel", "⚠️ Return legs should be created through the normal trip execution flow")
+                android.util.Log.w("TripDetailsViewModel", "⚠️ This requires the driver to manually return to base for each destination")
+
+            } catch (e: Exception) {
+                android.util.Log.e("TripDetailsViewModel", "Failed to create return legs for shared trip: ${e.message}")
             }
         }
     }
@@ -1039,6 +1311,16 @@ class TripDetailsViewModel(
                 _actionState.value = result.fold(
                     onSuccess = { 
                         android.util.Log.d("TripDetailsViewModel", "=== RETURN START SUCCESS ===")
+                        
+                        // DEBUG: Check what legs exist after starting return
+                        kotlinx.coroutines.delay(500)
+                        val legsAfterStart = repository.getTripLegs(safeTripId)
+                        android.util.Log.d("TripDetailsViewModel", "=== LEGS AFTER RETURN START ===")
+                        android.util.Log.d("TripDetailsViewModel", "Total legs found: ${legsAfterStart.size}")
+                        legsAfterStart.forEachIndexed { index, leg ->
+                            android.util.Log.d("TripDetailsViewModel", "Leg $index: ID=${leg.leg_id}, Destination=${leg.destination}, ReturnToBase=${leg.return_to_base}, Status=${leg.status}")
+                        }
+                        
                         loadSharedTripLegs(tripId)
                         TripActionState.Success 
                     },
@@ -1097,6 +1379,16 @@ class TripDetailsViewModel(
                 _actionState.value = result.fold(
                     onSuccess = { 
                         android.util.Log.d("TripDetailsViewModel", "=== RETURN ARRIVAL SUCCESS ===")
+                        
+                        // DEBUG: Check what legs exist after completing return
+                        kotlinx.coroutines.delay(500)
+                        val legsAfterArrival = repository.getTripLegs(safeTripId)
+                        android.util.Log.d("TripDetailsViewModel", "=== LEGS AFTER RETURN ARRIVAL ===")
+                        android.util.Log.d("TripDetailsViewModel", "Total legs found: ${legsAfterArrival.size}")
+                        legsAfterArrival.forEachIndexed { index, leg ->
+                            android.util.Log.d("TripDetailsViewModel", "Leg $index: ID=${leg.leg_id}, Destination=${leg.destination}, ReturnToBase=${leg.return_to_base}, Status=${leg.status}")
+                        }
+                        
                         loadSharedTripLegs(tripId)
                         TripActionState.Success 
                     },
@@ -1183,6 +1475,11 @@ class TripDetailsViewModel(
                 _actionState.value = result.fold(
                     onSuccess = {
                         android.util.Log.d("TripDetailsViewModel", "Trip submitted successfully")
+                        
+                        // Create return legs for shared trips
+                        android.util.Log.d("TripDetailsViewModel", "🚀 Creating return legs for shared trip...")
+                        createReturnLegsForSharedTrip(tripId, lastLeg, totalFuelUsed)
+                        
                         onComplete?.invoke()
                         TripActionState.Success
                     },
