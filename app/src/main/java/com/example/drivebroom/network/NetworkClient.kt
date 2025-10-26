@@ -82,6 +82,8 @@ class NetworkClient(private val tokenManager: TokenManager) {
             Log.d("NetworkClient", "Using token: $token")
             val request = chain.request().newBuilder()
                 .addHeader("Accept", "application/json")
+                .addHeader("User-Agent", "DriveBroom/1.0 (Android)")
+                .addHeader("X-Requested-With", "XMLHttpRequest")
                 .apply {
                     token?.let {
                         addHeader("Authorization", "Bearer $it")

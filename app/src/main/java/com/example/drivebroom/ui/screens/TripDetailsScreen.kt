@@ -111,6 +111,7 @@ fun TripDetailsScreen(
     var canArrive by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
     var departurePosted by remember { mutableStateOf(false) }
+    var returnStartPosted by remember { mutableStateOf(false) }
     var lastOdometerArrival by remember { mutableStateOf<Double?>(null) }
 
     // Passenger selections for single trip (visual parity with shared trip)
@@ -137,10 +138,17 @@ fun TripDetailsScreen(
         canArrive = false
         canReturn = false
         departurePosted = false
+        returnStartPosted = false // Reset return start flag
         lastOdometerArrival = null
         showDepartureDialog = false
         showArrivalDialog = false
         showReturnDialog = false
+        
+        // If trip is already returning, mark the flag as posted to prevent duplicate calls
+        if (singleTripStatus == "returning") {
+            returnStartPosted = true
+            android.util.Log.d("TripDetailsScreen", "Trip is already returning - marking flag as posted")
+        }
         
         // Try to retrieve fuel start from itinerary if available
         if (lastFuelBalanceStart == null && itinerary.isNotEmpty()) {
@@ -612,6 +620,7 @@ fun TripDetailsScreen(
                     val fuel = currentLegFuelBalance.toDoubleOrNull()
                     val dep = currentLegDestination
                     if (odo != null && fuel != null) {
+                        android.util.Log.i("TripDetailsScreen", "UI_INPUT Departure: odometer_start=$odo, fuel_start=$fuel, departure_location='${if (dep.isNotBlank()) dep else "Isatu Miagao Campus"}', time=${LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))}")
                         // Use regular departure for single trips (not leg departure)
                         tripDetailsViewModel.logDeparture(
                             tripId = trip.id,
@@ -676,8 +685,15 @@ fun TripDetailsScreen(
                 Column {
                     OutlinedTextField(
                         value = currentArrivalOdometer,
-                        onValueChange = { currentArrivalOdometer = it },
-                        label = { Text("Odometer End") },
+                        onValueChange = { 
+                            currentArrivalOdometer = it
+                            android.util.Log.d("TripDetailsScreen", "=== ODOMETER INPUT CHANGED ===")
+                            android.util.Log.d("TripDetailsScreen", "currentArrivalOdometer: '$currentArrivalOdometer'")
+                            android.util.Log.d("TripDetailsScreen", "currentArrivalOdometer length: ${currentArrivalOdometer.length}")
+                            android.util.Log.d("TripDetailsScreen", "currentArrivalOdometer toDoubleOrNull: ${currentArrivalOdometer.toDoubleOrNull()}")
+                        },
+                        label = { Text("Odometer End - Enter your actual odometer reading") },
+                        placeholder = { Text("e.g., 12510") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -715,8 +731,12 @@ fun TripDetailsScreen(
                             fuelBalanceEndInput = it
                             android.util.Log.d("TripDetailsScreen", "=== FUEL INPUT CHANGED ===")
                             android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput: '$fuelBalanceEndInput'")
+                            android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput length: ${fuelBalanceEndInput.length}")
+                            android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput isEmpty: ${fuelBalanceEndInput.isEmpty()}")
+                            android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput toDoubleOrNull: ${fuelBalanceEndInput.toDoubleOrNull()}")
                         },
-                        label = { Text("Fuel Balance End (L)") },
+                        label = { Text("Fuel Balance End (L) - Enter your actual fuel reading") },
+                        placeholder = { Text("e.g., 54") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -810,11 +830,22 @@ fun TripDetailsScreen(
                         val timeForDisplay = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
                         
                         // Calculate fuel used
+                        android.util.Log.d("TripDetailsScreen", "=== BEFORE FUEL CALCULATION ===")
+                        android.util.Log.d("TripDetailsScreen", "fuelBalanceEndInput raw: '$fuelBalanceEndInput'")
+                        android.util.Log.d("TripDetailsScreen", "fuelPurchasedInput raw: '$fuelPurchasedInput'")
+                        android.util.Log.d("TripDetailsScreen", "lastFuelBalanceStart: $lastFuelBalanceStart")
+                        
                         val fuelEndForNow = fuelBalanceEndInput.toDoubleOrNull() ?: 0.0
                         val fuelPurchasedValue = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
                         val fuelUsed = (lastFuelBalanceStart ?: 0.0) + fuelPurchasedValue - fuelEndForNow
                         
+                        android.util.Log.d("TripDetailsScreen", "=== AFTER FUEL CALCULATION ===")
+                        android.util.Log.d("TripDetailsScreen", "fuelEndForNow: $fuelEndForNow")
+                        android.util.Log.d("TripDetailsScreen", "fuelPurchasedValue: $fuelPurchasedValue")
+                        android.util.Log.d("TripDetailsScreen", "fuelUsed: $fuelUsed")
+                        
                         // Call the arrival API for single trips
+                        android.util.Log.i("TripDetailsScreen", "UI_INPUT Arrival: odometer_end=$odometerEnd, fuel_end=$fuelEndForNow, arrival_location='${arrivalLocation}', fuel_purchased=$fuelPurchasedValue, fuel_used=${maxOf(0.0, fuelUsed)}")
                         tripDetailsViewModel.logArrival(
                             tripId = trip.id,
                             odometerEnd = odometerEnd,
@@ -912,70 +943,10 @@ fun TripDetailsScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    // Send trip completion data to backend
-                    val fuelPurchased = storedFuelPurchased // Use stored value from arrival
-                    val fuelBalanceEnd = storedFuelBalanceEnd // Use stored value from arrival
-                    val fuelBalanceStart = lastFuelBalanceStart ?: 0.0
-                    
-                    // Debug logging
-                    android.util.Log.d("TripDetailsScreen", "=== TRIP COMPLETION DEBUG ===")
-                    android.util.Log.d("TripDetailsScreen", "fuelBalanceStart: $fuelBalanceStart")
-                    android.util.Log.d("TripDetailsScreen", "fuelPurchased: $fuelPurchased")
-                    android.util.Log.d("TripDetailsScreen", "fuelBalanceEnd: $fuelBalanceEnd")
-                    android.util.Log.d("TripDetailsScreen", "storedFuelBalanceEnd: $storedFuelBalanceEnd")
-                    android.util.Log.d("TripDetailsScreen", "calculated fuelUsed: ${fuelBalanceStart + fuelPurchased - fuelBalanceEnd}")
-                    
-                        val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
-                            passengersList.map { name ->
-                                com.example.drivebroom.network.PassengerDetail(
-                                    name = name,
-                                destination = trip.destination ?: "N/A",
-                                    signature = ""
-                                )
-                            }
-                        } else {
-                            listOf(
-                                com.example.drivebroom.network.PassengerDetail(
-                                    name = trip.passenger_email ?: "",
-                                destination = trip.destination ?: "N/A",
-                                    signature = ""
-                                )
-                            )
-                        }
-                    
-                    // Create itinerary for trip completion
-                        val firstLeg = itinerary.firstOrNull()
-                        val arrivalLeg = itinerary.firstOrNull { leg -> leg.odometerEnd != null }
-                    val finalItinerary = if (firstLeg != null) {
-                            val legDto = com.example.drivebroom.network.ItineraryLegDto(
-                            odometer_start = firstLeg.odometerStart,
-                            odometer = arrivalLeg?.odometerEnd ?: firstLeg.odometerStart,
-                            odometer_arrival = arrivalLeg?.odometerEnd,
-                                time_departure = firstLeg.timeDeparture,
-                            departure = firstLeg.departure,
-                                time_arrival = arrivalLeg?.timeArrival ?: LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
-                            arrival = arrivalLeg?.arrival ?: trip.destination ?: "N/A"
-                            )
-                            listOf(legDto)
-                        } else {
-                            emptyList()
-                        }
-                    
-                    // Send completion data to backend using the new unified return journey flow
-                    // This will properly store return journey data as TripLeg records with return_to_base = true
-                    tripDetailsViewModel.logReturnWithUnifiedFlow(
-                        trip.id,
-                        fuelBalanceStart,
-                        fuelPurchased,
-                        fuelBalanceEnd,
-                        passengerDetailsToSend,
-                        finalItinerary,
-                        onComplete = {
-                            // Close dialog and navigate to trip logs after successful completion
-                            showReturnDialog = false
-                            onNavigateToTripLogs()
-                        }
-                    )
+                    // No need to call complete - Return Arrive already completed the trip
+                    // Backend is idempotent, but no-op avoids unnecessary 422 in logs
+                    showReturnDialog = false
+                    onNavigateToTripLogs()
                 }) { Text("OK") }
             },
             dismissButton = {
@@ -1043,9 +1014,18 @@ fun TripDetailsScreen(
                     android.util.Log.d("TripDetailsScreen", "Odometer: $odo, Fuel: $fuel")
                     
                     if (odo != null && fuel != null) {
+                        if (returnStartPosted) {
+                            android.util.Log.d("TripDetailsScreen", "Return start already posted - preventing duplicate call")
+                            android.widget.Toast.makeText(context, "Return to base already started", android.widget.Toast.LENGTH_SHORT).show()
+                            showReturnStartDialog = false
+                            return@TextButton
+                        }
+                        
                         android.util.Log.d("TripDetailsScreen", "Calling startReturn...")
+                        android.util.Log.i("TripDetailsScreen", "UI_INPUT ReturnStart: odometer_start=$odo, fuel_start=$fuel")
                         // Start return journey
                         tripDetailsViewModel.startReturn(trip.id, odo, fuel)
+                        returnStartPosted = true
                         showReturnStartDialog = false
                         // Don't automatically show arrival dialog - let user click "Arrived at Base" button
                         
@@ -1082,14 +1062,11 @@ fun TripDetailsScreen(
             android.util.Log.d("TripDetailsScreen", "Return start odometer: $returnStartOdometer")
             android.util.Log.d("TripDetailsScreen", "Return start fuel: $returnStartFuel")
             
-            if (returnStartOdometer.isNotEmpty()) {
-                currentArrivalOdometer = returnStartOdometer
-                android.util.Log.d("TripDetailsScreen", "Auto-filled final odometer: $currentArrivalOdometer")
-            }
-            if (returnStartFuel.isNotEmpty()) {
-                fuelBalanceEndInput = returnStartFuel
-                android.util.Log.d("TripDetailsScreen", "Auto-filled final fuel: $fuelBalanceEndInput")
-            }
+            // Don't auto-fill - let user input their actual values
+            android.util.Log.d("TripDetailsScreen", "=== RETURN ARRIVAL DIALOG ===")
+            android.util.Log.d("TripDetailsScreen", "Calculated return start odometer: $returnStartOdometer")
+            android.util.Log.d("TripDetailsScreen", "Calculated return start fuel: $returnStartFuel")
+            android.util.Log.d("TripDetailsScreen", "User should input their actual values")
         }
         
         AlertDialog(
@@ -1133,57 +1110,24 @@ fun TripDetailsScreen(
                     val odo = currentArrivalOdometer.toDoubleOrNull()
                     val fuel = fuelBalanceEndInput.toDoubleOrNull()
                     if (odo != null && fuel != null) {
-                        // Complete the trip by sending the full return payload including itinerary
-                        val fuelPurchased = fuelPurchasedInput.toDoubleOrNull() ?: 0.0
-                        val passengerDetailsToSend = if (passengersList.isNotEmpty()) {
-                            passengersList.map { name ->
-                                com.example.drivebroom.network.PassengerDetail(
-                                    name = name,
-                                    destination = trip.destination ?: "N/A",
-                                    signature = ""
-                                )
-                            }
-                        } else {
-                            listOf(
-                                com.example.drivebroom.network.PassengerDetail(
-                                    name = trip.passenger_email ?: "",
-                                    destination = trip.destination ?: "N/A",
-                                    signature = ""
-                                )
-                            )
-                        }
+                        // Use the user's entered return start fuel to compute fuel used (no purchases on return)
+                        val returnStartFuel = currentLegFuelBalance.toDoubleOrNull() ?: 0.0
+                        val fuelUsed = kotlin.math.max(0.0, returnStartFuel - fuel)
 
-                        val finalItinerary = if (itinerary.isNotEmpty()) {
-                            val firstLeg = itinerary.first()
-                            val arrivalLeg = itinerary.firstOrNull { leg -> leg.odometerEnd != null }
-                            listOf(
-                                com.example.drivebroom.network.ItineraryLegDto(
-                                    odometer_start = firstLeg.odometerStart,
-                                    odometer = arrivalLeg?.odometerEnd ?: firstLeg.odometerStart,
-                                    odometer_arrival = arrivalLeg?.odometerEnd,
-                                    time_departure = firstLeg.timeDeparture,
-                                    departure = firstLeg.departure,
-                                    time_arrival = arrivalLeg?.timeArrival ?: LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
-                                    arrival = arrivalLeg?.arrival ?: trip.destination ?: "N/A"
-                                )
-                            )
-                        } else {
-                            emptyList()
-                        }
-
-                        tripDetailsViewModel.logReturnWithUnifiedFlow(
+                        // Call the correct single-trip return-arrive endpoint with user's inputs
+                        android.util.Log.i("TripDetailsScreen", "UI_INPUT ReturnArrive: odometer_end=$odo, fuel_end=$fuel, fuel_used=$fuelUsed, notes='${notes.ifBlank { null }}'")
+                        tripDetailsViewModel.logReturnArrival(
                             tripId = trip.id,
-                            fuelBalanceStart = lastFuelBalanceStart ?: 0.0,
-                            fuelPurchased = fuelPurchased,
-                            fuelBalanceEnd = fuel,
-                            passengerDetails = passengerDetailsToSend,
-                            itinerary = finalItinerary,
-                            onComplete = {
-                                // Navigate to trip logs after successful completion
-                                showReturnArrivalDialog = false
-                                onNavigateToTripLogs()
-                            }
+                            odometerEnd = odo,
+                            fuelEnd = fuel,
+                            returnArrivalLocation = "ISATU Miagao Campus",
+                            fuelUsed = fuelUsed,
+                            notes = notes.ifBlank { null }
                         )
+
+                        // Close and navigate
+                        showReturnArrivalDialog = false
+                        onNavigateToTripLogs()
                     } else {
                         android.widget.Toast.makeText(context, "Enter valid odometer and fuel.", android.widget.Toast.LENGTH_SHORT).show()
                     }

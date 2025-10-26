@@ -143,6 +143,15 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun logReturnArrival(tripId: Int, body: ReturnArrivalBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
+                Log.d("DriverRepository", "=== SINGLE TRIP RETURN-ARRIVE DEBUG ===")
+                Log.d("DriverRepository", "Trip ID: $tripId")
+                Log.d("DriverRepository", "API Endpoint: POST /single-trips/$tripId/return-arrive")
+                Log.d("DriverRepository", "Request Body:")
+                Log.d("DriverRepository", "  - odometer_end: ${body.odometerEnd}")
+                Log.d("DriverRepository", "  - fuel_end: ${body.fuelEnd}")
+                Log.d("DriverRepository", "  - fuel_used: ${body.fuelUsed}")
+                Log.d("DriverRepository", "  - return_arrival_location: ${body.returnArrivalLocation}")
+                Log.d("DriverRepository", "  - notes: ${body.notes}")
                 val response = apiService.logReturnArrival(tripId, body)
                 if (response.isSuccessful) Result.success(Unit)
                 else Result.failure(Exception(response.errorBody()?.string() ?: "Return arrival failed"))
@@ -155,9 +164,57 @@ class DriverRepository(val apiService: ApiService) {
     suspend fun logComplete(tripId: Int, body: CompleteBody): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {
+                Log.d("DriverRepository", "=== SINGLE TRIP COMPLETION DEBUG ===")
+                Log.d("DriverRepository", "Trip ID: $tripId")
+                Log.d("DriverRepository", "API Endpoint: POST /single-trips/$tripId/complete")
+                Log.d("DriverRepository", "Request Body:")
+                Log.d("DriverRepository", "  - odometer_end: ${body.odometerEnd}")
+                Log.d("DriverRepository", "  - fuel_end: ${body.fuelEnd}")
+                Log.d("DriverRepository", "  - fuel_used: ${body.fuelUsed}")
+                Log.d("DriverRepository", "  - notes: ${body.notes}")
+                // Emit compact JSON preview for server-side validation troubleshooting
+                try {
+                    val json = "{" +
+                        "\"odometer_end\":" + body.odometerEnd + "," +
+                        "\"fuel_end\":" + body.fuelEnd + "," +
+                        "\"fuel_used\":" + body.fuelUsed +
+                        (body.notes?.let { ",\"notes\":\"" + it.replace("\"", "\\\"") + "\"" } ?: "") +
+                        "}"
+                    Log.d("DriverRepository", "Payload JSON: $json")
+                } catch (e: Exception) {
+                    Log.w("DriverRepository", "Failed to render payload JSON for logs", e)
+                }
+                
                 val response = apiService.logComplete(tripId, body)
-                if (response.isSuccessful) Result.success(Unit)
-                else Result.failure(Exception(response.errorBody()?.string() ?: "Complete failed"))
+                Log.d("DriverRepository", "Backend response code: ${response.code()}")
+                
+                if (response.isSuccessful) {
+                    Log.d("DriverRepository", "✅ Single trip completion successful")
+                    Result.success(Unit)
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("DriverRepository", "❌ Single trip completion failed: ${response.code()}")
+                    Log.e("DriverRepository", "Error body: $errorBody")
+                    Result.failure(Exception("Complete failed: ${response.code()} - $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("DriverRepository", "Single trip completion exception", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    // New no-body completion for single trips (status toggle)
+    suspend fun completeTripNoBody(tripId: Int): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("DriverRepository", "Completing single trip with no body: tripId=$tripId")
+                val response = apiService.completeTripNoBody(tripId)
+                if (response.isSuccessful) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Complete (no body) failed: ${response.code()}"))
+                }
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -328,10 +385,14 @@ class DriverRepository(val apiService: ApiService) {
                                         hasTripStops -> "Multiple Destinations"
                                         else -> dataObj.get("destination")?.asString ?: ""
                                     },
-                                    trip_type = finalTripType
+                                    trip_type = finalTripType,
+                                    travel_date = parsed.travel_date ?: (dataObj.get("travel_date")?.asString ?: "")
                                 )
                             } else {
-                                parsed.copy(trip_type = finalTripType)
+                                parsed.copy(
+                                    trip_type = finalTripType,
+                                    travel_date = parsed.travel_date ?: (dataObj.get("travel_date")?.asString ?: "")
+                                )
                             }
                             
                             finalParsed

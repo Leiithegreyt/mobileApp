@@ -51,10 +51,17 @@ interface ApiService {
         @Body body: ReturnArrivalBody
     ): retrofit2.Response<Unit>
 
+    @Headers("Content-Type: application/json")
     @POST("single-trips/{tripId}/complete")
     suspend fun logComplete(
         @Path("tripId") tripId: Int,
         @Body body: CompleteBody
+    ): retrofit2.Response<Unit>
+
+    // No-body variant for single-trip completion (status toggle)
+    @POST("single-trips/{tripId}/complete")
+    suspend fun completeTripNoBody(
+        @Path("tripId") tripId: Int
     ): retrofit2.Response<Unit>
 
     // Legacy endpoints for backward compatibility
@@ -230,6 +237,8 @@ data class DepartureBody(
 data class ArrivalBody(
     @SerializedName("odometer_arrival") val odometerEnd: Double,
     @SerializedName("fuel_end") val fuelEnd: Double,
+    // Backward-compat: some backends still expect fuel_balance_end on arrival
+    @SerializedName("fuel_balance_end") val fuelBalanceEndCompat: Double? = null,
     @SerializedName("arrival_location") val arrivalLocation: String,
     @SerializedName("fuel_used") val fuelUsed: Double? = null,
     @SerializedName("notes") val notes: String? = null,
@@ -247,16 +256,19 @@ data class ReturnStartBody(
 data class ReturnArrivalBody(
     @SerializedName("odometer_end") val odometerEnd: Double,
     @SerializedName("fuel_end") val fuelEnd: Double,
+    // Backward-compat: some backends still expect fuel_balance_end on return-arrive
+    @SerializedName("fuel_balance_end") val fuelBalanceEndCompat: Double? = null,
     @SerializedName("return_arrival_location") val returnArrivalLocation: String,
     @SerializedName("fuel_used") val fuelUsed: Double,
-    @SerializedName("notes") val notes: String? = null
+    @SerializedName("notes") val notes: String? = null,
+    @SerializedName("return_arrival_time") val returnArrivalTime: String? = null
 )
 
 data class CompleteBody(
     @SerializedName("odometer_end") val odometerEnd: Double,
     @SerializedName("fuel_end") val fuelEnd: Double,
     @SerializedName("fuel_used") val fuelUsed: Double,
-    @SerializedName("completion_notes") val completionNotes: String? = null
+    @SerializedName("notes") val notes: String? = null
 )
 data class ItineraryLegDto(
     val odometer_start: Double, // Required - odometer reading at departure
