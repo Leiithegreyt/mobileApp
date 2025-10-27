@@ -43,14 +43,21 @@ class NetworkClient(private val tokenManager: TokenManager) {
     
     // Global 401 error handler
     private val authErrorHandler = Interceptor { chain ->
-        val response = chain.proceed(chain.request())
+        val request = chain.request()
+        val response = chain.proceed(request)
         
         if (response.code == 401) {
-            Log.w("NetworkClient", "Received 401 Unauthorized - clearing token")
-            Log.w("NetworkClient", "Request URL: ${chain.request().url}")
-            Log.w("NetworkClient", "Request headers: ${chain.request().headers}")
-            tokenManager.clearToken()
-            // The callback will be triggered by clearToken()
+            val path = request.url.encodedPath
+            val isLogin = path.endsWith("/driver/login") || path.endsWith("/api/driver/login")
+            if (!isLogin) {
+                Log.w("NetworkClient", "Received 401 Unauthorized - clearing token")
+                Log.w("NetworkClient", "Request URL: ${request.url}")
+                Log.w("NetworkClient", "Request headers: ${request.headers}")
+                tokenManager.clearToken()
+                // The callback will be triggered by clearToken()
+            } else {
+                Log.w("NetworkClient", "401 on login endpoint - not clearing token (invalid credentials)")
+            }
         }
         
         response
@@ -133,9 +140,9 @@ class NetworkClient(private val tokenManager: TokenManager) {
                 throw e
             }
         }
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private val retrofit = Retrofit.Builder()

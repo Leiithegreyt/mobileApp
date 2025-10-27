@@ -22,7 +22,8 @@ class DriverHomeViewModel(private val apiService: ApiService) : ViewModel() {
         viewModelScope.launch {
             _uiState.value = DriverHomeUiState.Loading
             try {
-                val profile = apiService.getDriverProfile()
+                // Fetch full driver profile details (includes phone, license_number, profile_photo_url)
+                val profile = apiService.getDriverProfileDetails()
                 val tripsResponse = apiService.getAssignedTrips()
                 val trips = tripsResponse.trips
                 

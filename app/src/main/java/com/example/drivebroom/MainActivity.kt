@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -28,6 +29,9 @@ import com.example.drivebroom.network.NetworkClient
 import com.example.drivebroom.repository.DriverRepository
 import com.example.drivebroom.ui.screens.DriverHomeScreen
 import com.example.drivebroom.ui.screens.LoginScreen
+import com.example.drivebroom.ui.screens.RegisterScreen
+import com.example.drivebroom.ui.screens.AwaitApprovalScreen
+import com.example.drivebroom.ui.screens.DeclinedScreen
 import com.example.drivebroom.ui.screens.TripDetailsScreen
 import com.example.drivebroom.ui.screens.SharedTripFlowScreen
 import com.example.drivebroom.network.TripDetails
@@ -100,6 +104,8 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
         Log.d("MainScreen", "Setting up auth failure callback")
         tokenManager.setOnAuthFailureCallback {
             Log.d("MainScreen", "Authentication failure detected - forcing logout")
+            // Avoid recursive callback loops by clearing without triggering callback again
+            tokenManager.clearToken(triggerCallback = false)
             loginViewModel.handleAuthFailure()
         }
         Log.d("MainScreen", "Auth failure callback set up complete")
@@ -128,6 +134,8 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
             navigationViewModel.pendingTripId.value = null
         }
     }
+
+    var showRegister by remember { mutableStateOf(false) }
 
     when (loginState) {
         is LoginState.Success -> {
@@ -344,16 +352,31 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                 }
             }
         }
-        else -> {
-            LoginScreen(
-                loginState = loginState,
-                onLoginSuccess = { email, password ->
-                    loginViewModel.login(email, password)
-                },
-                onClearError = {
-                    loginViewModel.clearError()
-                }
+        is LoginState.PendingApproval -> {
+            AwaitApprovalScreen(
+                onRefresh = { loginViewModel.routeByMe() }
             )
+        }
+        is LoginState.Declined -> {
+            DeclinedScreen()
+        }
+        else -> {
+            if (showRegister) {
+                RegisterScreen(
+                    onBack = { showRegister = false }
+                )
+            } else {
+                LoginScreen(
+                    loginState = loginState,
+                    onLoginSuccess = { email, password ->
+                        loginViewModel.login(email, password)
+                    },
+                    onClearError = {
+                        loginViewModel.clearError()
+                    },
+                    onNavigateRegister = { showRegister = true }
+                )
+            }
         }
     }
 }

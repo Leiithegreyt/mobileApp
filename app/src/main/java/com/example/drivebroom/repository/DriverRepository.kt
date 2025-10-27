@@ -3,6 +3,7 @@ package com.example.drivebroom.repository
 import com.example.drivebroom.network.ApiService
 import com.example.drivebroom.network.LoginRequest
 import com.example.drivebroom.network.LoginResponse
+import com.example.drivebroom.network.RegisterRequest
 import com.example.drivebroom.network.FcmTokenRequest
 import com.example.drivebroom.network.DepartureBody
 import com.example.drivebroom.network.ArrivalBody
@@ -21,17 +22,38 @@ import retrofit2.Response
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.google.gson.Gson
+import com.example.drivebroom.network.ApiError
+import com.example.drivebroom.network.PendingApprovalException
+import com.example.drivebroom.network.InactiveAccountException
+import com.example.drivebroom.network.NotDriverException
+import com.example.drivebroom.network.InvalidCredentialsException
+import retrofit2.HttpException
 import com.google.gson.JsonParser
 import android.util.Log
 
 class DriverRepository(val apiService: ApiService) {
-    suspend fun loginDriver(email: String, password: String): Result<LoginResponse> {
+    suspend fun loginDriver(email: String, password: String, fcmToken: String? = null): Result<LoginResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val json = apiService.loginDriver(LoginRequest(email, password))
+                val response = apiService.loginDriver(LoginRequest(email, password, fcmToken))
+                if (!response.isSuccessful) {
+                    val code = response.code()
+                    val body = response.errorBody()?.string()
+                    android.util.Log.e("LoginRepository", "HTTP $code body=${body ?: ""}")
+                    // Try to parse structured error
+                    val apiErr = try { Gson().fromJson(body ?: "", ApiError::class.java) } catch (_: Exception) { null }
+                    when (apiErr?.error) {
+                        "approval_pending" -> throw PendingApprovalException()
+                        "inactive" -> throw InactiveAccountException()
+                        "not_driver" -> throw NotDriverException()
+                        "invalid_credentials" -> throw InvalidCredentialsException()
+                        else -> throw Exception("Login failed: ${code} ${body ?: response.message()}")
+                    }
+                }
+                val json = response.body()!!
                 // Accept both wrapped and direct login responses
                 val gson = Gson()
-                val response: LoginResponse = if (json.isJsonObject) {
+                val loginParsed: LoginResponse = if (json.isJsonObject) {
                     // Could be { access_token, user } or { data: { access_token, user } }
                     val obj = json.asJsonObject
                     if (obj.has("access_token") || obj.has("user")) {
@@ -47,10 +69,46 @@ class DriverRepository(val apiService: ApiService) {
                     val token = json.asString
                     LoginResponse(access_token = token, user = null)
                 }
-                if (response.access_token != null) {
-                    Result.success(response)
+                if (loginParsed.access_token != null) {
+                    Result.success(loginParsed)
                 } else {
-                    Result.failure(Exception("Login failed: Invalid credentials or missing token"))
+                    // Use HTTP status code for more specific errors when possible
+                    val code = response.code()
+                    val msg = when (code) {
+                        401 -> "Invalid credentials"
+                        403 -> "Access forbidden"
+                        else -> "Invalid response or missing token"
+                    }
+                    Result.failure(Exception("Login failed: $msg"))
+                }
+            } catch (e: Exception) {
+                // Map HttpExceptions with structured error body
+                if (e is HttpException) {
+                    val body = e.response()?.errorBody()?.string().orEmpty()
+                    android.util.Log.e("LoginRepository", "HTTP ${e.code()} body=$body")
+                    val apiErr = runCatching { Gson().fromJson(body, ApiError::class.java) }.getOrNull()
+                    when (apiErr?.error) {
+                        "approval_pending" -> return@withContext Result.failure(PendingApprovalException())
+                        "inactive" -> return@withContext Result.failure(InactiveAccountException())
+                        "not_driver" -> return@withContext Result.failure(NotDriverException())
+                        "invalid_credentials" -> return@withContext Result.failure(InvalidCredentialsException())
+                    }
+                }
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun registerDriver(name: String, email: String, password: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = apiService.registerDriver(RegisterRequest(name, email, password))
+                when (response.code()) {
+                    201 -> Result.success(Unit)
+                    else -> {
+                        val body = response.errorBody()?.string()
+                        Result.failure(Exception("Register failed: ${response.code()} - ${body ?: response.message()}"))
+                    }
                 }
             } catch (e: Exception) {
                 Result.failure(e)

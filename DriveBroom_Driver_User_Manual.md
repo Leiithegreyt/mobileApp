@@ -2,24 +2,63 @@
 
 ## User's Manual for Driver
 
-### 1. Application Installation and Setup
+### Quick Start (New Drivers)
 
-1.1. Download the DriveBroom application from the Google Play Store.
-1.2. Install the application on your Android device.
-1.3. Ensure your device has internet connectivity for initial setup.
-1.4. Grant necessary permissions when prompted by the system.
+1) Install
+   - Download DriveBroom from the Google Play Store and install it.
+   - Make sure you have internet and grant the requested permissions.
 
-### 2. Initial Login Process
+2) Register your driver account
+   - Open the app → on the Login screen tap "Register as Driver".
+   - Enter your Name, Email and Password → tap Register.
 
-2.1. Open the DriveBroom application on your device.
-2.2. The login screen will appear automatically.
-2.3. Enter your assigned email address in the email field.
-2.4. Enter your password in the password field.
-2.5. Click the "Login" button to authenticate.
-2.6. Wait for the system to validate your credentials.
-2.7. If login is successful, you will be redirected to the main dashboard.
+3) Wait for approval
+   - An admin will review your account. You’ll receive an email/notification when approved.
+   - If you open the app before approval, you’ll see the "Await Approval" screen. Tap Refresh to re-check.
 
-**Note:** If you receive an error message, verify your credentials and try again. Contact your administrator if login issues persist.
+4) Login
+   - Open the app, enter Email and Password → tap Login.
+   - If approved and active, you’ll land on the Driver Dashboard.
+   - If you see errors:
+     - 401 Invalid credentials → check email/password.
+     - 403 Approval pending → wait for admin approval.
+     - 403 Inactive account → contact admin.
+
+5) First steps after login
+   - Tap the profile icon (top-right) to quickly view your profile.
+   - Tap the settings icon (top-right) to manage Active status, edit profile, or change password.
+
+### Edit Profile (Name, Phone, License, Photo)
+
+1) Open Settings (gear icon, top-right on the dashboard)
+2) Tap "Edit Profile"
+3) Update:
+   - Name
+   - Phone
+   - License Number
+   - Profile Photo (tap "Choose Photo" to pick an image)
+4) Tap "Save"
+   - The app will confirm and reload your profile details.
+
+### Active (Availability)
+
+1) Open Settings
+2) Active switch
+   - Turn ON to be available for assignments
+   - Turn OFF to be unavailable
+3) Tap "Apply"
+   - Note: The switch is enabled only if your account is approved. If not approved, it’s locked.
+
+### Change Password
+
+1) Open Settings → "Change Password"
+2) Enter Current Password, New Password, Confirm New Password
+3) Tap "Change Password"
+
+### Logout
+
+1) Open Settings → "Logout"
+2) Confirm in the dialog → you’ll return to the Login screen
 
 ### 3. Main Dashboard Navigation
 
@@ -42,17 +81,10 @@
    3.4.1. Click the "Trip Logs" button to view completed trips.
    3.4.2. This shows your historical trip data and completed assignments.
 
-### 4. Profile Management
+### Profile & Settings (At a glance)
 
-4.1. **View Profile Information**
-   4.1.1. Click the profile icon (person icon) in the top-right corner.
-   4.1.2. View your name, email, and phone number.
-   4.1.3. Click "Close" to return to the dashboard.  
-
-   4.2.1. Click the logout icon (exit icon) in the top-right corner.
-   4.2.2. A confirmation dialog will appear.
-   4.2.3. Click "Logout" to confirm or "Cancel" to return to the dashboard.
-   4.2.4. You will be redirected to the login screen.
+- Profile (person icon): quick view of your photo, name, email, phone, license
+- Settings (gear icon): Active switch, Edit Profile, Change Password, Logout
 
 ### 5. Trip Execution - Single Trip
 

@@ -14,7 +14,8 @@ import com.example.drivebroom.viewmodel.LoginState
 fun LoginScreen(
     loginState: LoginState,
     onLoginSuccess: (String, String) -> Unit,
-    onClearError: () -> Unit = {}
+    onClearError: () -> Unit = {},
+    onNavigateRegister: (() -> Unit)? = null
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -23,15 +24,11 @@ fun LoginScreen(
     val isLoading = loginState is LoginState.Loading
     val errorMessage = when (loginState) {
         is LoginState.Error -> loginState.message
+        is LoginState.PendingApproval -> "Your driver account is pending approval. Please wait for admin approval."
         else -> null
     }
     
-    // Clear error when user starts typing
-    LaunchedEffect(email, password) {
-        if (errorMessage != null) {
-            onClearError()
-        }
-    }
+    // Clear error when user starts typing (handled in onValueChange)
 
     Column(
         modifier = Modifier
@@ -48,7 +45,10 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { 
+                email = it
+                if (errorMessage != null) onClearError()
+            },
             label = { Text("Email") },
             modifier = Modifier
                 .fillMaxWidth()
@@ -57,7 +57,10 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = { 
+                password = it
+                if (errorMessage != null) onClearError()
+            },
             label = { Text("Password") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier
@@ -109,6 +112,13 @@ fun LoginScreen(
                 )
             } else {
                 Text("Login")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        if (onNavigateRegister != null) {
+            TextButton(onClick = { onNavigateRegister() }) {
+                Text("Register as Driver")
             }
         }
     }

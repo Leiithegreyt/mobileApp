@@ -10,6 +10,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessaging
+import java.net.SocketTimeoutException
+import java.net.ConnectException
+import java.net.UnknownHostException
+import java.io.InterruptedIOException
+import com.example.drivebroom.network.DriverProfile
+import com.example.drivebroom.network.PendingApprovalException
+import com.example.drivebroom.network.InactiveAccountException
+import com.example.drivebroom.network.NotDriverException
+import com.example.drivebroom.network.InvalidCredentialsException
 
 class LoginViewModel(
     private val repository: DriverRepository,
@@ -47,58 +56,64 @@ class LoginViewModel(
         viewModelScope.launch {
             _loginState.value = LoginState.Loading
             Log.d("LoginViewModel", "Sending login request to repository")
-            repository.loginDriver(email, password)
-                .onSuccess { response ->
-                    Log.d("LoginViewModel", "Login response: $response")
-                    response.access_token?.let { token ->
-                        tokenManager.saveToken(token)
-                        _loginState.value = LoginState.Success(token)
-
-                        // Get and send FCM token
-                        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                            if (task.isSuccessful) {
-                                val fcmToken = task.result
-                                Log.d("LoginViewModel", "FCM token retrieved: $fcmToken")
-                                viewModelScope.launch {
-                                    try {
-                                        repository.updateFcmToken(fcmToken)
-                                        Log.d("LoginViewModel", "FCM token updated successfully")
-                                    } catch (e: Exception) {
-                                        Log.e("LoginViewModel", "Failed to update FCM token", e)
-                                        // Don't fail login if FCM token update fails
-                                    }
-                                }
-                            } else {
-                                Log.e("LoginViewModel", "Failed to get FCM token", task.exception)
-                                // Don't fail login if FCM token retrieval fails
-                            }
-                        }
-                    } ?: run {
-                        Log.d("LoginViewModel", "No access_token in response")
-                        _loginState.value = LoginState.Error("Invalid response from server")
-                    }
+            // Try to fetch FCM token up front (non-blocking), but don't fail if unavailable
+            var cachedFcm: String? = null
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    cachedFcm = task.result
                 }
-                .onFailure { error ->
-                    Log.e("LoginViewModel", "Login failed", error)
-                    val errorMessage = when {
-                        error.message?.contains("401", ignoreCase = true) == true -> 
-                            "Wrong email or password. Please check your credentials."
-                        error.message?.contains("403", ignoreCase = true) == true -> 
-                            "Access denied. Please contact your administrator."
-                        error.message?.contains("404", ignoreCase = true) == true -> 
-                            "Server not found. Please check your internet connection."
-                        error.message?.contains("500", ignoreCase = true) == true -> 
-                            "Server error. Please try again later."
-                        error.message?.contains("timeout", ignoreCase = true) == true -> 
-                            "Connection timeout. Please check your internet connection."
-                        error.message?.contains("network", ignoreCase = true) == true -> 
-                            "Network error. Please check your internet connection."
-                        error.message?.contains("Unauthorized", ignoreCase = true) == true -> 
-                            "Wrong email or password. Please check your credentials."
-                        else -> error.message ?: "Login failed. Please try again."
+            }
+            try {
+				val result = repository.loginDriver(email, password, cachedFcm)
+				result
+					.onSuccess { response ->
+						Log.d("LoginViewModel", "Login response: $response")
+						response.access_token?.let { token ->
+							tokenManager.saveToken(token)
+							// Bootstrap session with /api/me
+							routeByMe()
+							// Send FCM token if not already
+							if (cachedFcm == null) {
+								FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+									if (task.isSuccessful) {
+										val fcmToken = task.result
+										viewModelScope.launch { runCatching { repository.updateFcmToken(fcmToken) } }
+									}
+								}
+							} else {
+								cachedFcm?.let { token ->
+									viewModelScope.launch { runCatching { repository.updateFcmToken(token) } }
+								}
+							}
+						} ?: run {
+							Log.d("LoginViewModel", "No access_token in response")
+							_loginState.value = LoginState.Error("Invalid response from server")
+						}
+					}
+					.onFailure { err ->
+						throw err
+					}
+            } catch (error: Exception) {
+                Log.e("LoginViewModel", "Login failed", error)
+                when (error) {
+                    is PendingApprovalException -> {
+                        val me = DriverProfile(0, "", "", "", role = "driver", approval_status = "pending", status = null)
+                        _loginState.value = LoginState.PendingApproval(me)
                     }
-                    _loginState.value = LoginState.Error(errorMessage)
+                    is InterruptedIOException -> _loginState.value = LoginState.Error("Connection timed out. Please try again.")
+                    is SocketTimeoutException -> _loginState.value = LoginState.Error("Connection timed out. Please try again.")
+                    is ConnectException, is UnknownHostException -> _loginState.value = LoginState.Error("Cannot reach server. Check your internet or server status.")
+                    is InactiveAccountException -> _loginState.value = LoginState.Error("Your account is inactive. Contact admin.")
+                    is NotDriverException -> _loginState.value = LoginState.Error("Please use a driver account to log in.")
+                    is InvalidCredentialsException -> _loginState.value = LoginState.Error("Invalid email or password.")
+                    else -> _loginState.value = LoginState.Error(error.message ?: "Login failed. Please try again.")
                 }
+            } finally {
+                // If still in loading, reset to Initial to clear spinner unless Success/Pending/Declined already set
+                if (_loginState.value is LoginState.Loading) {
+                    _loginState.value = LoginState.Initial
+                }
+            }
         }
     }
 
@@ -110,13 +125,38 @@ class LoginViewModel(
     
     fun handleAuthFailure() {
         Log.d("LoginViewModel", "Handling authentication failure - forcing logout")
-        tokenManager.clearToken()
+        tokenManager.clearToken(triggerCallback = false)
         _loginState.value = LoginState.Initial
     }
     
     fun clearError() {
         if (_loginState.value is LoginState.Error) {
             _loginState.value = LoginState.Initial
+        }
+    }
+
+    // Session bootstrap: GET /api/me and route by role/approval_status
+    fun routeByMe() {
+        viewModelScope.launch {
+            try {
+                // Only attempt if we have a valid token
+                if (!tokenManager.isTokenValid()) return@launch
+                val me = repository.apiService.getDriverProfile()
+                val role = me.role ?: "driver"
+                val approval = me.approval_status ?: "approved"
+                if (role != "driver") {
+                    _loginState.value = LoginState.Error("Not a driver account")
+                    return@launch
+                }
+                when (approval.lowercase()) {
+                    "approved" -> _loginState.value = LoginState.Success(tokenManager.getToken().orEmpty())
+                    "pending" -> _loginState.value = LoginState.PendingApproval(me)
+                    "declined" -> _loginState.value = LoginState.Declined(me)
+                    else -> _loginState.value = LoginState.Success(tokenManager.getToken().orEmpty())
+                }
+            } catch (e: Exception) {
+                // Keep current state on failure
+            }
         }
     }
 
@@ -129,5 +169,7 @@ sealed class LoginState {
     object Initial : LoginState()
     object Loading : LoginState()
     data class Success(val token: String) : LoginState()
+    data class PendingApproval(val me: DriverProfile) : LoginState()
+    data class Declined(val me: DriverProfile) : LoginState()
     data class Error(val message: String) : LoginState()
 } 

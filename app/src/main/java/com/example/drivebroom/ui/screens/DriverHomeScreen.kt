@@ -6,8 +6,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.runtime.LaunchedEffect
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.URL
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +55,9 @@ fun DriverHomeScreen(
     var selectedCompletedTrip by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     var showSharedTripDetails by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     var showLogoutConfirm by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var showEditProfile by remember { mutableStateOf(false) }
+    var showChangePassword by remember { mutableStateOf(false) }
     var isNavigatingToTripLogs by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
@@ -227,13 +242,39 @@ fun DriverHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(driverProfile?.name ?: "Driver") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val photoUrl = driverProfile?.profile_photo_url
+                        var bmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                        LaunchedEffect(photoUrl) {
+                            bmp = null
+                            if (!photoUrl.isNullOrBlank()) {
+                                try {
+                                    val bytes = withContext(Dispatchers.IO) { URL(photoUrl).openStream().use { it.readBytes() } }
+                                    bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp!!.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(driverProfile?.name ?: "Driver")
+                    }
+                },
                 actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
                     IconButton(onClick = { showProfile = true }) {
                         Icon(Icons.Default.Person, contentDescription = "Profile")
-                    }
-                    IconButton(onClick = { showLogoutConfirm = true }) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Logout")
                     }
                 }
             )
@@ -350,15 +391,68 @@ fun DriverHomeScreen(
         }
     }
 
+    if (showSettings) {
+        SettingsScreen(
+            onBack = { showSettings = false },
+            onEditProfile = { showSettings = false; showEditProfile = true },
+            onChangePassword = { showSettings = false; showChangePassword = true },
+            onLogout = { showSettings = false; showLogoutConfirm = true }
+        )
+        return
+    }
+
+    if (showEditProfile) {
+        EditProfileScreen(
+            currentName = driverProfile?.name,
+            currentPhone = driverProfile?.phone,
+            onBack = { showEditProfile = false },
+            onSaved = { showEditProfile = false }
+        )
+        return
+    }
+
+    if (showChangePassword) {
+        ChangePasswordScreen(
+            onBack = { showChangePassword = false },
+            onChanged = { showChangePassword = false }
+        )
+        return
+    }
+
     if (showProfile && driverProfile != null) {
         AlertDialog(
             onDismissRequest = { showProfile = false },
             title = { Text("Driver Profile") },
             text = {
-                Column {
-                    Text("Name: ${driverProfile.name}")
-                    Text("Email: ${driverProfile.email}")
-                    Text("Phone: ${driverProfile.phone}")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val photoUrl = driverProfile.profile_photo_url
+                    var bmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                    LaunchedEffect(photoUrl) {
+                        bmp = null
+                        if (!photoUrl.isNullOrBlank()) {
+                            try {
+                                val bytes = withContext(Dispatchers.IO) { java.net.URL(photoUrl).openStream().use { it.readBytes() } }
+                                bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp!!.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("Name: ${driverProfile.name}")
+                        Text("Email: ${driverProfile.email}")
+                        Text("Phone: ${driverProfile.phone}")
+                        Text("License: ${driverProfile.license_number ?: "-"}")
+                    }
                 }
             },
             confirmButton = {

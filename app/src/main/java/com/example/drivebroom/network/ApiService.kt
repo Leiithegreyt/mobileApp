@@ -2,11 +2,16 @@ package com.example.drivebroom.network
 
 import com.google.gson.annotations.SerializedName
 import retrofit2.http.*
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import com.google.gson.JsonElement
 
 interface ApiService {
     @POST("driver/login")
-    suspend fun loginDriver(@Body loginRequest: LoginRequest): JsonElement
+    suspend fun loginDriver(@Body loginRequest: LoginRequest): retrofit2.Response<JsonElement>
+
+    @POST("driver/register")
+    suspend fun registerDriver(@Body registerRequest: RegisterRequest): retrofit2.Response<JsonElement>
 
     @GET("me")
     suspend fun getDriverProfile(): DriverProfile
@@ -25,6 +30,25 @@ interface ApiService {
 
     @POST("driver/fcm-token")
     suspend fun updateFcmToken(@Body request: FcmTokenRequest): retrofit2.Response<Unit>
+
+    // Profile and account endpoints
+    @GET("driver/profile")
+    suspend fun getDriverProfileDetails(): DriverProfile
+
+    @POST("driver/profile")
+    suspend fun updateProfileJson(@Body request: UpdateProfileRequest): retrofit2.Response<Unit>
+
+    @Multipart
+    @POST("driver/profile")
+    suspend fun updateProfileMultipart(
+        @Part("phone") phone: RequestBody?,
+        @Part("license_number") licenseNumber: RequestBody?,
+        @Part("status") status: RequestBody?,
+        @Part profile_photo: MultipartBody.Part?
+    ): retrofit2.Response<Unit>
+
+    @POST("driver/change-password")
+    suspend fun changePassword(@Body request: ChangePasswordRequest): retrofit2.Response<Unit>
 
     // Single Trip API Endpoints
     @POST("single-trips/{tripId}/depart")
@@ -128,6 +152,13 @@ interface ApiService {
 
 data class LoginRequest(
     val email: String,
+    val password: String,
+    val fcm_token: String? = null
+)
+
+data class RegisterRequest(
+    val name: String,
+    val email: String,
     val password: String
 )
 
@@ -147,7 +178,29 @@ data class DriverProfile(
     val id: Int,
     val name: String,
     val email: String,
-    val phone: String
+    val phone: String,
+    val license_number: String? = null,
+    val is_active: Boolean? = null,
+    val profile_photo_url: String? = null,
+    // Optional fields returned by /api/me for routing
+    val role: String? = null,
+    val approval_status: String? = null,
+    val status: String? = null, // some backends use status (active/inactive)
+    val effective_available: Boolean? = null
+)
+
+data class UpdateProfileRequest(
+    val name: String? = null,
+    val phone: String? = null,
+    val license_number: String? = null,
+    val status: String? = null,
+    val is_active: Boolean? = null
+)
+
+data class ChangePasswordRequest(
+    val current_password: String,
+    val new_password: String,
+    val new_password_confirmation: String
 )
 
 data class Trip(

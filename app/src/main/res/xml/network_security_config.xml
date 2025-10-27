@@ -28,11 +28,11 @@
     <!-- Allow cleartext traffic for local development -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.121.22.107</domain>
+        <domain includeSubdomains="true">10.230.124.121</domain>
         <domain includeSubdomains="true">192.168.254.132</domain>
         <domain includeSubdomains="true">192.168.189.215</domain>
         <domain includeSubdomains="true">192.168.254.254</domain>
-        <domain includeSubdomains="true">192.168.254.102</domain>
+        <domain includeSubdomains="true">192.168.254.104</domain>
         <domain includeSubdomains="true">192.168.254.131</domain>
     </domain-config>
     
