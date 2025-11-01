@@ -299,6 +299,17 @@ class TripDetailsViewModel(
                     android.util.Log.d("TripDetailsViewModel", "Arrival Time: ${leg.arrival_time}")
                     android.util.Log.d("TripDetailsViewModel", "Departure Location: ${leg.departure_location}")
                     android.util.Log.d("TripDetailsViewModel", "Arrival Location: ${leg.arrival_location}")
+                    android.util.Log.d("TripDetailsViewModel", "Return to Base: ${leg.return_to_base}")
+                    android.util.Log.d("TripDetailsViewModel", "=== RETURN JOURNEY DATA ===")
+                    android.util.Log.d("TripDetailsViewModel", "Return Journey: ${leg.return_journey}")
+                    leg.return_journey?.let { rj ->
+                        android.util.Log.d("TripDetailsViewModel", "  Return Odometer Start: ${rj.return_odometer_start}")
+                        android.util.Log.d("TripDetailsViewModel", "  Return Fuel Start: ${rj.return_fuel_start}")
+                        android.util.Log.d("TripDetailsViewModel", "  Return Odometer End: ${rj.return_odometer_end}")
+                        android.util.Log.d("TripDetailsViewModel", "  Return Fuel End: ${rj.return_fuel_end}")
+                        android.util.Log.d("TripDetailsViewModel", "  Return Start Time: ${rj.return_start_time}")
+                        android.util.Log.d("TripDetailsViewModel", "  Return Arrival Time: ${rj.return_arrival_time}")
+                    }
                 }
                 
                 _sharedTripLegs.value = legs

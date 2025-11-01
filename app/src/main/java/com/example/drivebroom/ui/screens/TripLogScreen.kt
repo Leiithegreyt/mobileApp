@@ -42,10 +42,12 @@ fun TripLogScreen(
                 trip.requestedBy?.contains(searchQuery, ignoreCase = true) == true ||
                 trip.id.toString().contains(searchQuery)
             
+            val typeLower = trip.tripType?.lowercase()
             val matchesType = when (selectedTripType) {
                 "All" -> true
-                "Shared" -> trip.tripType == "shared"
-                "Individual" -> trip.tripType == "individual"
+                "Shared" -> typeLower == "shared"
+                // Some backends may return "single" or use different casing; treat them the same
+                "Individual" -> typeLower == "individual" || typeLower == "single"
                 else -> true
             }
             
@@ -108,8 +110,12 @@ fun TripLogScreen(
                     )
                     
                     // Trip statistics
-                    val sharedCount = completedTrips.count { it.tripType == "shared" }
-                    val individualCount = completedTrips.count { it.tripType == "individual" }
+                    val sharedCount = completedTrips.count { it.tripType?.equals("shared", ignoreCase = true) == true }
+                    // Count both "individual" and legacy "single" as Individual (case-insensitive)
+                    val individualCount = completedTrips.count {
+                        val t = it.tripType?.lowercase()
+                        t == "individual" || t == "single"
+                    }
                     val completedCount = completedTrips.count { it.status?.equals("completed", ignoreCase = true) == true }
                     val cancelledCount = completedTrips.count { 
                         val s = it.status?.lowercase()
@@ -310,9 +316,9 @@ fun CompletedTripCard(
                         fontWeight = FontWeight.Bold
                     )
                     // Use trip type from API response
-                    val tripType = when (trip.tripType) {
+                    val tripType = when (trip.tripType?.lowercase()) {
                         "shared" -> "🔄 Shared Trip"
-                        "individual" -> "🚗 Individual Trip"
+                        "individual", "single" -> "🚗 Individual Trip"
                         else -> "🚗 Trip"
                     }
                     Text(

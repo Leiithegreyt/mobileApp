@@ -29,10 +29,10 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">10.230.124.121</domain>
-        <domain includeSubdomains="true">192.168.254.132</domain>
+        <domain includeSubdomains="true">192.168.254.135</domain>
         <domain includeSubdomains="true">192.168.189.215</domain>
         <domain includeSubdomains="true">192.168.254.254</domain>
-        <domain includeSubdomains="true">192.168.254.104</domain>
+        <domain includeSubdomains="true">192.168.254.103</domain>
         <domain includeSubdomains="true">192.168.254.131</domain>
     </domain-config>
     

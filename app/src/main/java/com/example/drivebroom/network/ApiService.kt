@@ -402,6 +402,8 @@ data class SharedTripLeg(
 data class ReturnJourney(
     val return_start_time: String?,
     val return_start_location: String?,
+    val return_odometer_start: String?,     // ✅ ADDED
+    val return_fuel_start: String?,         // ✅ ADDED
     val return_odometer_end: String?,
     val return_fuel_end: String?,
     val return_arrival_time: String?,

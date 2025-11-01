@@ -382,20 +382,37 @@ fun CompletedTripDetailsScreen(
                                 modifier = Modifier.padding(bottom = 12.dp)
                             )
                             
-                            // Sort legs by departure time to get the correct execution order
-                            val sortedLegs = legsToShow!!.sortedBy { leg ->
-                                leg.departure_time ?: "00:00:00"
-                            }
-                            
-                            // Display detailed legs in the desired format with correct numbering
-                            sortedLegs.forEachIndexed { index, leg ->
-                                DetailedLegCard(
-                                    leg = leg,
-                                    legNumber = index + 1,
-                                    isLast = index == sortedLegs.size - 1
-                                )
-                                if (index < sortedLegs.size - 1) {
-                                    Spacer(modifier = Modifier.height(16.dp))
+                            // Handle single trips differently - separate outbound and return legs
+                            if (!isSharedTrip && legsToShow.size >= 2) {
+                                // For single trips with multiple legs, separate outbound and return
+                                val outboundLeg = legsToShow.find { !(it.return_to_base ?: false) }
+                                val returnLeg = legsToShow.find { it.return_to_base ?: false }
+
+                                // Display outbound leg as Leg 1
+                                outboundLeg?.let { leg ->
+                                    DetailedLegCard(
+                                        leg = leg,
+                                        legNumber = 1,
+                                        isLast = true,
+                                        returnLeg = returnLeg // Pass return leg data
+                                    )
+                                }
+                            } else {
+                                // For shared trips or single trips with single leg, use original logic
+                                val sortedLegs = legsToShow.sortedBy { leg ->
+                                    leg.departure_time ?: "00:00:00"
+                                }
+
+                                // Display detailed legs in the desired format with correct numbering
+                                sortedLegs.forEachIndexed { index, leg ->
+                                    DetailedLegCard(
+                                        leg = leg,
+                                        legNumber = index + 1,
+                                        isLast = index == sortedLegs.size - 1
+                                    )
+                                    if (index < sortedLegs.size - 1) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                    }
                                 }
                             }
                         }
@@ -536,7 +553,8 @@ private fun TripInfoRow(
 private fun DetailedLegCard(
     leg: SharedTripLeg,
     legNumber: Int,
-    isLast: Boolean
+    isLast: Boolean,
+    returnLeg: SharedTripLeg? = null
     ) {
         Column(
         modifier = Modifier.fillMaxWidth()
@@ -734,23 +752,23 @@ private fun DetailedLegCard(
             }
         }
         
-        // Return Journey Section (if return_journey data exists)
-        leg.return_journey?.let { returnJourney ->
+        // Return Journey Section (if returnLeg is provided)
+        returnLeg?.let { returnData ->
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Return to Base Header
             Text(
-                text = "🔄 Return to Base - ${returnJourney.return_arrival_location ?: "ISATU Miagao Campus"}",
+                text = "🔄 Return to Base - ${returnData.arrival_location ?: returnData.destination}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
-            
+
             // Return Journey Details - Two Column Table Layout
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                    leg.odometer_end?.let { odometer ->
+                    returnData.return_journey?.return_odometer_start?.let { odometer ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -763,14 +781,14 @@ private fun DetailedLegCard(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = "${String.format("%.0f", odometer)} km",
+                            text = "${String.format("%.0f", odometer.toDoubleOrNull() ?: 0.0)} km",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
-                
-                    leg.fuel_end?.let { fuel ->
+
+                    returnData.return_journey?.return_fuel_start?.let { fuel ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -783,13 +801,209 @@ private fun DetailedLegCard(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = "${String.format("%.1f", fuel)} L",
+                            text = "${String.format("%.1f", fuel.toDoubleOrNull() ?: 0.0)} L",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
-                
+
+                returnData.return_journey?.return_start_time?.let { time ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Departure Time",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = formatTime(time),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnData.return_journey?.return_start_location?.let { location ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Departure Location",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = location,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnData.return_journey?.return_odometer_end?.let { odometer ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Odometer End",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.0f", odometer.toDoubleOrNull() ?: 0.0)} km",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnData.return_journey?.return_fuel_end?.let { fuel ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Fuel Level End",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.1f", fuel.toDoubleOrNull() ?: 0.0)} L",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnData.return_journey?.return_arrival_time?.let { time ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Arrival Time",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = formatTime(time),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnData.return_journey?.return_arrival_location?.let { location ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Final Location",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = location,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "Remarks",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "Return to base completed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        // Fallback: Original return_journey logic for backward compatibility
+        leg.return_journey?.let { returnJourney ->
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Return to Base Header
+            Text(
+                text = "🔄 Return to Base - ${returnJourney.return_arrival_location ?: "ISATU Miagao Campus"}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            // Return Journey Details - Two Column Table Layout
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                    returnJourney.return_odometer_start?.let { odometer ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Odometer Start",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.0f", odometer.toDoubleOrNull() ?: 0.0)} km",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                    returnJourney.return_fuel_start?.let { fuel ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Fuel Level Start",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.1f", fuel.toDoubleOrNull() ?: 0.0)} L",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
                 returnJourney.return_start_time?.let { time ->
                     Row(
                         modifier = Modifier
@@ -809,7 +1023,7 @@ private fun DetailedLegCard(
                         )
                     }
                 }
-                
+
                 returnJourney.return_start_location?.let { location ->
                     Row(
                         modifier = Modifier
@@ -829,7 +1043,7 @@ private fun DetailedLegCard(
                         )
                     }
                 }
-                
+
                 returnJourney.return_odometer_end?.let { odometer ->
                     Row(
                         modifier = Modifier
@@ -843,13 +1057,13 @@ private fun DetailedLegCard(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = "${String.format("%.0f", odometer.toDouble())} km",
+                            text = "${String.format("%.0f", odometer.toDoubleOrNull() ?: 0.0)} km",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
-                
+
                 returnJourney.return_fuel_end?.let { fuel ->
                     Row(
                         modifier = Modifier
@@ -863,13 +1077,13 @@ private fun DetailedLegCard(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = "${String.format("%.1f", fuel.toDouble())} L",
+                            text = "${String.format("%.1f", fuel.toDoubleOrNull() ?: 0.0)} L",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
-                
+
                 returnJourney.return_arrival_time?.let { time ->
                     Row(
                         modifier = Modifier
@@ -889,7 +1103,7 @@ private fun DetailedLegCard(
                         )
                     }
                 }
-                
+
                 returnJourney.return_arrival_location?.let { location ->
                     Row(
                         modifier = Modifier
@@ -909,7 +1123,7 @@ private fun DetailedLegCard(
                         )
                     }
                 }
-                
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
