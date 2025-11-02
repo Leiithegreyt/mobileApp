@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Person
@@ -15,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +52,10 @@ fun DriverHomeScreen(
     navigationViewModel: com.example.drivebroom.viewmodel.NavigationViewModel? = null
 ) {
     var showProfile by remember { mutableStateOf(false) }
-    var showNextSchedule by remember { mutableStateOf(false) }
+    // Check if we need to show Next Schedule immediately when composable loads
+    var showNextSchedule by remember { 
+        mutableStateOf(navigationViewModel?.showNextScheduleRequested?.value == true) 
+    }
     var showCompletedTrips by remember { mutableStateOf(false) }
     var selectedCompletedTrip by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
     var showSharedTripDetails by remember { mutableStateOf<com.example.drivebroom.network.CompletedTrip?>(null) }
@@ -103,6 +108,40 @@ fun DriverHomeScreen(
             isNavigatingToTripLogs = false
             navigationViewModel?.navigateToTripLogs?.value = false // Reset flag
             android.util.Log.d("DriverHomeScreen", "=== TRIP LOGS NAVIGATION COMPLETE ===")
+        }
+    }
+    
+    // Handle navigation back to Next Schedule - check immediately when composable loads
+    LaunchedEffect(Unit) {
+        val shouldShow = navigationViewModel?.showNextScheduleRequested?.value ?: false
+        if (shouldShow) {
+            android.util.Log.d("DriverHomeScreen", "=== SHOW NEXT SCHEDULE REQUESTED (IMMEDIATE CHECK) ===")
+            android.util.Log.d("DriverHomeScreen", "Setting showNextSchedule = true")
+            showNextSchedule = true
+            navigationViewModel?.showNextScheduleRequested?.value = false // Reset flag
+        }
+    }
+    
+    // Also check immediately on first composition if flag is already set
+    if (navigationViewModel?.showNextScheduleRequested?.value == true && !showNextSchedule) {
+        LaunchedEffect(Unit) {
+            android.util.Log.d("DriverHomeScreen", "=== SHOW NEXT SCHEDULE (SYNC CHECK) ===")
+            showNextSchedule = true
+            navigationViewModel?.showNextScheduleRequested?.value = false
+        }
+    }
+    
+    // Also poll for changes in case flag is set after initial load
+    LaunchedEffect(navigationViewModel) {
+        while (true) {
+            val shouldShow = navigationViewModel?.showNextScheduleRequested?.value ?: false
+            if (shouldShow) {
+                android.util.Log.d("DriverHomeScreen", "=== SHOW NEXT SCHEDULE REQUESTED (POLLING) ===")
+                android.util.Log.d("DriverHomeScreen", "Setting showNextSchedule = true")
+                showNextSchedule = true
+                navigationViewModel?.showNextScheduleRequested?.value = false // Reset flag
+            }
+            delay(100) // Check every 100ms
         }
     }
     
@@ -226,12 +265,33 @@ fun DriverHomeScreen(
         }
     }
 
-    if (showNextSchedule) {
+    // Check flag synchronously before rendering to avoid showing main screen first
+    val shouldShowNextScheduleNow = navigationViewModel?.showNextScheduleRequested?.value == true || showNextSchedule
+    if (shouldShowNextScheduleNow) {
+        // Reset flag if it was set
+        if (navigationViewModel?.showNextScheduleRequested?.value == true) {
+            navigationViewModel?.showNextScheduleRequested?.value = false
+        }
+        if (!showNextSchedule) {
+            // Set state for next recomposition
+            showNextSchedule = true
+        }
         android.util.Log.d("DriverHomeScreen", "Showing NextScheduleScreen with ${nextTrips.size} trips")
         NextScheduleScreen(
             driverProfile = driverProfile,
             nextTrips = nextTrips,
-            onTripClick = onTripClick,
+            onTripClick = { tripId ->
+                // Set flag to track we came from Next Schedule - set it right before calling onTripClick
+                android.util.Log.d("DriverHomeScreen", "=== TRIP CLICKED FROM NEXT SCHEDULE ===")
+                android.util.Log.d("DriverHomeScreen", "Trip ID: $tripId")
+                android.util.Log.d("DriverHomeScreen", "cameFromNextSchedule BEFORE setting: ${navigationViewModel?.cameFromNextSchedule?.value}")
+                navigationViewModel?.cameFromNextSchedule?.value = true
+                android.util.Log.d("DriverHomeScreen", "cameFromNextSchedule AFTER setting: ${navigationViewModel?.cameFromNextSchedule?.value}")
+                // Call onTripClick after setting the flag
+                onTripClick(tripId)
+                // Verify flag is still set after onTripClick
+                android.util.Log.d("DriverHomeScreen", "cameFromNextSchedule AFTER onTripClick: ${navigationViewModel?.cameFromNextSchedule?.value}")
+            },
             onBack = { showNextSchedule = false }
         )
         return
@@ -493,12 +553,7 @@ fun NextScheduleScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Next Schedule") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Back")
-                    }
-                }
+                title = { Text("Next Schedule") }
             )
         }
     ) { padding ->
@@ -509,23 +564,19 @@ fun NextScheduleScreen(
                 .padding(16.dp)
         ) {
             item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
+                TextButton(
+                    onClick = onBack,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Default.ExitToApp,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Back",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        style = MaterialTheme.typography.titleMedium
                     )
                 }
             }

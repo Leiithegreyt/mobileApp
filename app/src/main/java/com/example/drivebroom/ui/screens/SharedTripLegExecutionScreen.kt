@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -311,8 +312,8 @@ fun SharedTripLegExecutionScreen(
                     Text("Leg ${currentLegIndex + 1} of $totalLegs") 
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = onLegList) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back to Leg List")
                     }
                 },
                 actions = {
@@ -323,7 +324,7 @@ fun SharedTripLegExecutionScreen(
                             showPreviousLegsDialog = true
                         }
                     ) {
-                        Icon(Icons.Default.Person, contentDescription = "View Previous Legs")
+                        Icon(Icons.Default.List, contentDescription = "View Previous Legs")
                     }
                     
                     // Refresh button
@@ -857,6 +858,13 @@ fun SharedTripLegExecutionScreen(
 
     // Departure Dialog
     if (showDepartureDialog) {
+        // Auto-check all passengers for shared trips
+        LaunchedEffect(showDepartureDialog) {
+            if (showDepartureDialog && currentLeg?.passengers?.isNotEmpty() == true) {
+                confirmedPassengers = currentLeg.passengers
+            }
+        }
+        
         AlertDialog(
             onDismissRequest = { showDepartureDialog = false },
             title = { Text("Departure Details") },
@@ -895,39 +903,37 @@ fun SharedTripLegExecutionScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Confirm passengers for this leg:",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    currentLeg?.passengers?.forEach { passenger ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Checkbox(
-                                checked = confirmedPassengers.contains(passenger),
-                                onCheckedChange = { checked ->
-                                    confirmedPassengers = if (checked) {
-                                        confirmedPassengers + passenger
-                                    } else {
-                                        confirmedPassengers - passenger
-                                    }
+                    if (currentLeg?.passengers?.isNotEmpty() == true) {
+                        Text(
+                            text = "Passengers (${currentLeg.passengers.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column {
+                            currentLeg.passengers.forEach { passenger ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = passenger,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
                                 }
-                            )
-                            Text(
-                                text = passenger,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
+                            }
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = manifestOverrideReason,
-                        onValueChange = { manifestOverrideReason = it },
-                        label = { Text("Manifest Override Reason (optional)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             },
             confirmButton = {
@@ -936,7 +942,7 @@ fun SharedTripLegExecutionScreen(
                     val fuel = fuelStart.toDoubleOrNull()
                     val depTime = departureTime // Always use the current time since it's auto-generated
                     val depLoc = if (departureLocation.isBlank()) "ISATU Miagao Campus" else departureLocation
-                    val override = manifestOverrideReason.takeIf { it.isNotBlank() }
+                    val override = null // Manifest override reason removed
                     
                     android.util.Log.d("SharedTripLegExecutionScreen", "=== DEPARTURE CONFIRMATION DEBUG ===")
                     android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
@@ -965,6 +971,13 @@ fun SharedTripLegExecutionScreen(
 
     // Arrival Dialog
     if (showArrivalDialog) {
+        // Auto-check all passengers for shared trips
+        LaunchedEffect(showArrivalDialog) {
+            if (showArrivalDialog && currentLeg?.passengers?.isNotEmpty() == true) {
+                confirmedPassengers = currentLeg.passengers
+            }
+        }
+        
         // Ensure defaults when dialog opens
         LaunchedEffect(Unit) {
             if (arrivalLocation.isBlank()) {
@@ -1047,38 +1060,35 @@ fun SharedTripLegExecutionScreen(
                         label = { Text("Fuel Purchased (L)") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("Notes") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Confirm passengers dropped off:",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    currentLeg?.passengers?.forEach { passenger ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Checkbox(
-                                checked = confirmedPassengers.contains(passenger),
-                                onCheckedChange = { checked ->
-                                    confirmedPassengers = if (checked) {
-                                        confirmedPassengers + passenger
-                                    } else {
-                                        confirmedPassengers - passenger
-                                    }
+                    if (currentLeg?.passengers?.isNotEmpty() == true) {
+                        Text(
+                            text = "Passengers (${currentLeg.passengers.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column {
+                            currentLeg.passengers.forEach { passenger ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = passenger,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
                                 }
-                            )
-                            Text(
-                                text = passenger,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
+                            }
                         }
                     }
                 }
@@ -1096,7 +1106,7 @@ fun SharedTripLegExecutionScreen(
                     if (odoEnd != null && fuelEndValue != null) {
                         // Call arrival only - let user choose next action
                         val legId = currentLeg?.leg_id ?: 0
-                        onLegArrival(legId, odoEnd, fuelUsedValue, fuelEndValue, confirmedPassengers, arrTime, arrLoc, fuelPurchasedValue, notes)
+                        onLegArrival(legId, odoEnd, fuelUsedValue, fuelEndValue, confirmedPassengers, arrTime, arrLoc, fuelPurchasedValue, null) // Notes field removed
                         showArrivalDialog = false
                     }
                 }) {

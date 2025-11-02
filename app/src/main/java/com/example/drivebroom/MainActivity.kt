@@ -161,6 +161,16 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                             driverProfile = null,
                             trips = emptyList(),
                             onTripClick = { tripId ->
+                                // Only reset flag if it's not already set (i.e., clicking from main screen, not Next Schedule)
+                                // If it's already true (from Next Schedule), keep it true
+                                Log.d("MainActivity", "=== TRIP CLICKED IN MAINACTIVITY ===")
+                                Log.d("MainActivity", "cameFromNextSchedule value: ${navigationViewModel.cameFromNextSchedule.value}")
+                                if (navigationViewModel.cameFromNextSchedule.value != true) {
+                                    Log.d("MainActivity", "Resetting cameFromNextSchedule to false (clicked from main screen)")
+                                    navigationViewModel.cameFromNextSchedule.value = false
+                                } else {
+                                    Log.d("MainActivity", "Keeping cameFromNextSchedule = true (clicked from Next Schedule)")
+                                }
                                 selectedTripId.value = tripId
                                 tripDetailsLoading.value = false
                                 tripDetailsError.value = null
@@ -181,6 +191,16 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                             driverProfile = state.profile,
                             trips = state.trips,
                             onTripClick = { tripId ->
+                                // Only reset flag if it's not already set (i.e., clicking from main screen, not Next Schedule)
+                                // If it's already true (from Next Schedule), keep it true
+                                Log.d("MainActivity", "=== TRIP CLICKED IN MAINACTIVITY ===")
+                                Log.d("MainActivity", "cameFromNextSchedule value: ${navigationViewModel.cameFromNextSchedule.value}")
+                                if (navigationViewModel.cameFromNextSchedule.value != true) {
+                                    Log.d("MainActivity", "Resetting cameFromNextSchedule to false (clicked from main screen)")
+                                    navigationViewModel.cameFromNextSchedule.value = false
+                                } else {
+                                    Log.d("MainActivity", "Keeping cameFromNextSchedule = true (clicked from Next Schedule)")
+                                }
                                 selectedTripId.value = tripId
                                 tripDetailsLoading.value = false
                                 tripDetailsError.value = null
@@ -314,6 +334,14 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                     SharedTripFlowScreen(
                                         tripDetails = currentTripDetails,
                                         onBack = {
+                                            Log.d("MainActivity", "=== SHARED TRIP BACK PRESSED ===")
+                                            Log.d("MainActivity", "cameFromNextSchedule: ${navigationViewModel.cameFromNextSchedule.value}")
+                                            // Check if we came from Next Schedule
+                                            if (navigationViewModel.cameFromNextSchedule.value == true) {
+                                                Log.d("MainActivity", "Setting showNextScheduleRequested to true")
+                                                navigationViewModel.showNextScheduleRequested.value = true
+                                                navigationViewModel.cameFromNextSchedule.value = false
+                                            }
                                             selectedTripId.value = null
                                             tripDetailsError.value = null
                                         },
@@ -324,6 +352,11 @@ fun MainScreen(tokenManager: TokenManager, tripIdFromIntent: Int? = null) {
                                     TripDetailsScreen(
                                         tripDetails = currentTripDetails,
                                         onBack = {
+                                            // Check if we came from Next Schedule
+                                            if (navigationViewModel.cameFromNextSchedule.value == true) {
+                                                navigationViewModel.showNextScheduleRequested.value = true
+                                                navigationViewModel.cameFromNextSchedule.value = false
+                                            }
                                             selectedTripId.value = null
                                             tripDetailsError.value = null
                                         },

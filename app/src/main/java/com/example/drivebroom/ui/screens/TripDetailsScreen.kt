@@ -549,6 +549,13 @@ fun TripDetailsScreen(
 
     // Departure dialog
     if (showDepartureDialog) {
+        // Auto-check all passengers for single trips
+        LaunchedEffect(showDepartureDialog) {
+            if (showDepartureDialog && passengersList.isNotEmpty()) {
+                confirmedPassengerSet = passengersList.toSet()
+            }
+        }
+        
         AlertDialog(
             onDismissRequest = { showDepartureDialog = false },
             title = { Text("Departure Details") },
@@ -594,21 +601,23 @@ fun TripDetailsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        Column {
                             passengersList.forEach { name ->
                                 Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Checkbox(
-                                        checked = confirmedPassengerSet.contains(name),
-                                        onCheckedChange = { checked ->
-                                            confirmedPassengerSet = if (checked) confirmedPassengerSet + name else confirmedPassengerSet - name
-                                        }
+                                    Icon(
+                                        Icons.Default.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(name, style = MaterialTheme.typography.bodyMedium)
+                                }
                             }
                         }
                     }
@@ -678,6 +687,14 @@ fun TripDetailsScreen(
     if (showArrivalDialog) {
         // Auto-fill arrival location from trip destination
         val arrivalLocation = trip.destination ?: "N/A"
+        
+        // Auto-check all passengers for single trips
+        LaunchedEffect(showArrivalDialog) {
+            if (showArrivalDialog && passengersList.isNotEmpty()) {
+                droppedPassengerSet = passengersList.toSet()
+            }
+        }
+        
         AlertDialog(
             onDismissRequest = { showArrivalDialog = false },
             title = { Text("Arrival Details") },
@@ -773,15 +790,6 @@ fun TripDetailsScreen(
                         enabled = false,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("Notes (Optional)") },
-                        placeholder = { Text("Enter any additional notes or comments") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                     Spacer(modifier = Modifier.height(16.dp))
                     if (passengersList.isNotEmpty()) {
                         Text(
@@ -790,21 +798,23 @@ fun TripDetailsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        Column {
                             passengersList.forEach { name ->
                                 Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Checkbox(
-                                        checked = droppedPassengerSet.contains(name),
-                                        onCheckedChange = { checked ->
-                                            droppedPassengerSet = if (checked) droppedPassengerSet + name else droppedPassengerSet - name
-                                        }
+                                    Icon(
+                                        Icons.Default.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(name, style = MaterialTheme.typography.bodyMedium)
+                                }
                             }
                         }
                     }
@@ -844,7 +854,7 @@ fun TripDetailsScreen(
                         android.util.Log.d("TripDetailsScreen", "fuelPurchasedValue: $fuelPurchasedValue")
                         android.util.Log.d("TripDetailsScreen", "fuelUsed: $fuelUsed")
                         
-                        // Call the arrival API for single trips
+                        // Call the arrival API for single trips - auto-send all passengers
                         android.util.Log.i("TripDetailsScreen", "UI_INPUT Arrival: odometer_end=$odometerEnd, fuel_end=$fuelEndForNow, arrival_location='${arrivalLocation}', fuel_purchased=$fuelPurchasedValue, fuel_used=${maxOf(0.0, fuelUsed)}")
                         tripDetailsViewModel.logArrival(
                             tripId = trip.id,
@@ -852,7 +862,8 @@ fun TripDetailsScreen(
                             fuelEnd = fuelEndForNow,
                             arrivalLocation = arrivalLocation,
                             fuelUsed = maxOf(0.0, fuelUsed),
-                            notes = "Arrived at destination"
+                            notes = null,
+                            passengersDropped = passengersList // Auto-send all passengers for single trips
                         )
                         
                         // Also update local itinerary for display
