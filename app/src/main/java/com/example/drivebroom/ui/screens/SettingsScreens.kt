@@ -162,8 +162,8 @@ fun EditProfileScreen(
         isLoadingProfile = true
         try {
             val prof = api.getDriverProfileDetails()
-            name = prof.name
-            phone = prof.phone
+            name = prof.name.orEmpty()
+            phone = prof.phone.orEmpty()
             license = prof.license_number.orEmpty()
             // status removed from edit form
         } catch (_: Exception) {
@@ -278,8 +278,8 @@ fun EditProfileScreen(
                                 // Reload profile so values persist when returning later
                                 try {
                                     val prof = api.getDriverProfileDetails()
-                                    name = prof.name
-                                    phone = prof.phone
+                                    name = prof.name.orEmpty()
+                                    phone = prof.phone.orEmpty()
                                     license = prof.license_number.orEmpty()
                                     // status not used in edit form
                                 } catch (_: Exception) {}

@@ -362,6 +362,67 @@ fun CompletedTripDetailsScreen(
                 }
             }
             
+            // Trip Fuel Summary
+            if (!legsToShow.isNullOrEmpty()) {
+                item {
+                    val totalFuelUsed = legsToShow.sumOf { leg ->
+                        (leg.fuel_used ?: 0.0) + (leg.return_journey?.return_fuel_used?.toDoubleOrNull() ?: 0.0)
+                    }
+                    val totalFuelPurchased = legsToShow.sumOf { leg ->
+                        leg.fuel_purchased ?: 0.0
+                    }
+                    
+                    if (totalFuelUsed > 0 || totalFuelPurchased > 0) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(4.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = "Fuel Summary",
+                                        tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Fuel Summary",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                                
+                                if (totalFuelUsed > 0) {
+                                    TripInfoRow(
+                                        icon = Icons.Default.Info,
+                                        label = "Total Fuel Used",
+                                        value = "${String.format("%.1f", totalFuelUsed)} L"
+                                    )
+                                }
+                                
+                                if (totalFuelPurchased > 0) {
+                                    TripInfoRow(
+                                        icon = Icons.Default.Info,
+                                        label = "Total Fuel Purchased",
+                                        value = "${String.format("%.1f", totalFuelPurchased)} L"
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
+            
             // Detailed Trip Legs Information
             if (!legsToShow.isNullOrEmpty()) {
                 item {
@@ -731,6 +792,48 @@ private fun DetailedLegCard(
                 }
             }
             
+            leg.fuel_used?.let { fuelUsed ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "Fuel Used",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "${String.format("%.1f", fuelUsed)} L",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            
+            leg.fuel_purchased?.let { fuelPurchased ->
+                if (fuelPurchased > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Fuel Purchased",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.1f", fuelPurchased)} L",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+            
             if (!leg.passengers.isNullOrEmpty()) {
                 Row(
                     modifier = Modifier
@@ -882,6 +985,26 @@ private fun DetailedLegCard(
                         )
                         Text(
                             text = "${String.format("%.1f", fuel.toDoubleOrNull() ?: 0.0)} L",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnData.return_journey?.return_fuel_used?.let { fuelUsed ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Fuel Used",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.1f", fuelUsed.toDoubleOrNull() ?: 0.0)} L",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )
@@ -1078,6 +1201,26 @@ private fun DetailedLegCard(
                         )
                         Text(
                             text = "${String.format("%.1f", fuel.toDoubleOrNull() ?: 0.0)} L",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                returnJourney.return_fuel_used?.let { fuelUsed ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Fuel Used",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "${String.format("%.1f", fuelUsed.toDoubleOrNull() ?: 0.0)} L",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f)
                         )

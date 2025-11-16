@@ -49,6 +49,7 @@ fun SharedTripLegExecutionScreen(
     actionState: TripActionState,
     isLastLeg: Boolean
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     // Form state
     var odometerStart by remember { mutableStateOf("") }
     var fuelStart by remember { mutableStateOf("") }
@@ -104,12 +105,12 @@ fun SharedTripLegExecutionScreen(
                         sharedTripLegs[currentLegIndex - 1]
                     } else null
                     
-                    val newLocation = if (previousLeg?.return_to_base == true) {
-                        // Previous leg required return to base, so start from base
+                    val newLocation = if (previousLeg?.return_to_base == true || previousLeg?.return_journey != null) {
+                        // Previous leg returned to base (either via return_to_base flag or has return_journey), so start from base
                         "ISATU Miagao Campus"
                     } else {
-                        // Continue from previous leg's destination
-                        previousLeg?.destination ?: "ISATU Miagao Campus"
+                        // Continue from previous leg's arrival location (where it actually ended)
+                        previousLeg?.arrival_location ?: previousLeg?.destination ?: "ISATU Miagao Campus"
                     }
                     android.util.Log.d("SharedTripLegExecutionScreen", "Updated departureLocation to: $newLocation (previous leg return_to_base: ${previousLeg?.return_to_base}, destination: ${previousLeg?.destination})")
                     newLocation
@@ -262,12 +263,12 @@ fun SharedTripLegExecutionScreen(
                     sharedTripLegs[currentLegIndex - 1]
                 } else null
                 
-                if (previousLeg?.return_to_base == true) {
-                    // Previous leg required return to base, so start from base
+                if (previousLeg?.return_to_base == true || previousLeg?.return_journey != null) {
+                    // Previous leg returned to base (either via return_to_base flag or has return_journey), so start from base
                     "ISATU Miagao Campus"
                 } else {
-                    // Continue from previous leg's destination
-                    previousLeg?.destination ?: "ISATU Miagao Campus"
+                    // Continue from previous leg's arrival location (where it actually ended)
+                    previousLeg?.arrival_location ?: previousLeg?.destination ?: "ISATU Miagao Campus"
                 }
             } else {
                 // If no previous legs are completed, this is the first leg being executed
@@ -941,15 +942,36 @@ fun SharedTripLegExecutionScreen(
                     val odo = odometerStart.toDoubleOrNull()
                     val fuel = fuelStart.toDoubleOrNull()
                     val depTime = departureTime // Always use the current time since it's auto-generated
-                    val depLoc = if (departureLocation.isBlank()) "ISATU Miagao Campus" else departureLocation
+                    
+                    // Calculate correct departure location based on previous leg's return status
+                    val correctDepLoc = if (currentLegIndex == 0) {
+                        "ISATU Miagao Campus"
+                    } else {
+                        val previousLeg = if (currentLegIndex - 1 < sharedTripLegs.size) {
+                            sharedTripLegs[currentLegIndex - 1]
+                        } else null
+                        
+                        if (previousLeg?.return_to_base == true || previousLeg?.return_journey != null) {
+                            // Previous leg returned to base, so start from base
+                            "ISATU Miagao Campus"
+                        } else {
+                            // Continue from previous leg's arrival location (where it actually ended)
+                            previousLeg?.arrival_location ?: previousLeg?.destination ?: "ISATU Miagao Campus"
+                        }
+                    }
+                    
+                    val depLoc = if (departureLocation.isBlank()) correctDepLoc else {
+                        // Use the calculated correct location to ensure accuracy
+                        correctDepLoc
+                    }
                     val override = null // Manifest override reason removed
                     
                     android.util.Log.d("SharedTripLegExecutionScreen", "=== DEPARTURE CONFIRMATION DEBUG ===")
                     android.util.Log.d("SharedTripLegExecutionScreen", "Current leg index: $currentLegIndex")
                     android.util.Log.d("SharedTripLegExecutionScreen", "Total legs: ${sharedTripLegs.size}")
-                    android.util.Log.d("SharedTripLegExecutionScreen", "Previous leg data: ${if (currentLegIndex > 0 && currentLegIndex - 1 < sharedTripLegs.size) "ID=${sharedTripLegs[currentLegIndex - 1].leg_id}, destination=${sharedTripLegs[currentLegIndex - 1].destination}" else "N/A"}")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Previous leg data: ${if (currentLegIndex > 0 && currentLegIndex - 1 < sharedTripLegs.size) "ID=${sharedTripLegs[currentLegIndex - 1].leg_id}, destination=${sharedTripLegs[currentLegIndex - 1].destination}, return_journey=${sharedTripLegs[currentLegIndex - 1].return_journey != null}" else "N/A"}")
                     android.util.Log.d("SharedTripLegExecutionScreen", "departureLocation from UI: '$departureLocation'")
-                    android.util.Log.d("SharedTripLegExecutionScreen", "departureLocation isBlank: ${departureLocation.isBlank()}")
+                    android.util.Log.d("SharedTripLegExecutionScreen", "Correct calculated depLoc: '$correctDepLoc'")
                     android.util.Log.d("SharedTripLegExecutionScreen", "Final depLoc being sent: '$depLoc'")
                     
                     if (odo != null && fuel != null) {
@@ -1104,6 +1126,24 @@ fun SharedTripLegExecutionScreen(
                     } else arrivalTime
                     val arrLoc = if (arrivalLocation.isBlank()) (currentLeg?.destination ?: "") else arrivalLocation
                     if (odoEnd != null && fuelEndValue != null) {
+                        // Validate fuel_end is not 0 or unreasonably low
+                        val fuelStartValue = fuelStart.toDoubleOrNull() ?: currentLeg?.fuel_start ?: 0.0
+                        if (fuelEndValue <= 0) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Fuel End cannot be 0 or negative. Please enter a valid fuel reading.",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            return@TextButton
+                        }
+                        if (fuelEndValue >= fuelStartValue) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Fuel End should be less than Fuel Start (${fuelStartValue}L). Please check your reading.",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            return@TextButton
+                        }
                         // Call arrival only - let user choose next action
                         val legId = currentLeg?.leg_id ?: 0
                         onLegArrival(legId, odoEnd, fuelUsedValue, fuelEndValue, confirmedPassengers, arrTime, arrLoc, fuelPurchasedValue, null) // Notes field removed
